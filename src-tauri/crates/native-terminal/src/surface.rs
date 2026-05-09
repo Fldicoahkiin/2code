@@ -221,6 +221,9 @@ impl TerminalSurface {
     /// Read terminal grid, update text buffer, render, and return content hash.
     /// The hash can be used for idle detection without a separate grid read.
     pub fn render(&mut self) -> u64 {
+        // Background color rectangles: (row, col_start, col_count, r, g, b)
+        let mut bg_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
+
         let content_hash = if let Some(ref backend) = self.backend {
             let content = backend.grid_content(&self.theme);
 
@@ -232,6 +235,7 @@ impl TerminalSurface {
                 span.r.hash(&mut hasher);
                 span.g.hash(&mut hasher);
                 span.b.hash(&mut hasher);
+                span.bg.hash(&mut hasher);
             }
             content.cursor_row.hash(&mut hasher);
             content.cursor_col.hash(&mut hasher);
@@ -265,9 +269,15 @@ impl TerminalSurface {
                 }
 
                 let span_start_col = col;
-                let span_end_col = col + span.text.chars().count();
+                let char_count = span.text.chars().count();
+                let span_end_col = col + char_count;
                 let is_cursor_line = line == cursor_row && cursor_visible;
                 let cursor_in_span = is_cursor_line && cursor_col >= span_start_col && cursor_col < span_end_col;
+
+                // Collect background color rectangle
+                if let Some((br, bg_color, bb)) = span.bg {
+                    bg_rects.push((line, span_start_col, char_count, br, bg_color, bb));
+                }
 
                 if cursor_in_span {
                     let offset = cursor_col - span_start_col;
@@ -409,7 +419,24 @@ impl TerminalSurface {
             });
         }
 
-        // Pass 2: Draw cursor block (behind text)
+        // Pass 2a: Draw cell background colors
+        for &(row, col_start, col_count, r, g, b) in &bg_rects {
+            self.cursor_renderer.render(
+                &mut encoder,
+                &view,
+                &self.queue,
+                &self.device,
+                crate::cursor::CursorRect {
+                    x: PADDING as u32 + col_start as u32 * self.cell_width,
+                    y: PADDING as u32 + row as u32 * self.cell_height,
+                    width: col_count as u32 * self.cell_width,
+                    height: self.cell_height,
+                    color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
+                },
+            );
+        }
+
+        // Pass 2b: Draw cursor block (behind text)
         if let Some((row, col)) = self.cursor_pos {
             let (cr, cg, cb) = self.theme.cursor;
             self.cursor_renderer.render(

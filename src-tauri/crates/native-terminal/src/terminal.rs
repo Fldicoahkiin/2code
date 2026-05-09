@@ -9,12 +9,15 @@ use alacritty_terminal::sync::FairMutex;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-/// A span of text with a foreground color.
+/// A span of text with foreground and background colors.
 pub struct ColoredSpan {
     pub text: String,
+    /// Foreground RGB.
     pub r: u8,
     pub g: u8,
     pub b: u8,
+    /// Background RGB, None means default (transparent).
+    pub bg: Option<(u8, u8, u8)>,
 }
 
 /// Terminal grid content with cursor position.
@@ -122,18 +125,18 @@ impl TerminalBackend {
         let cursor_row = content.cursor.point.line.0 as usize;
         let cursor_col = content.cursor.point.column.0;
         let (fg_r, fg_g, fg_b) = theme.foreground;
+        let bg_default = theme.background;
 
         struct CellData {
             c: char,
-            r: u8,
-            g: u8,
-            b: u8,
+            fg: (u8, u8, u8),
+            bg: Option<(u8, u8, u8)>,
         }
 
         let mut grid: Vec<Vec<CellData>> = (0..lines)
             .map(|_| {
                 (0..cols)
-                    .map(|_| CellData { c: ' ', r: fg_r, g: fg_g, b: fg_b })
+                    .map(|_| CellData { c: ' ', fg: (fg_r, fg_g, fg_b), bg: None })
                     .collect()
             })
             .collect();
@@ -143,51 +146,53 @@ impl TerminalBackend {
             let col = cell.point.column.0;
             if row < lines && col < cols {
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
-                let (r, g, b) = ansi_to_rgb(cell.fg, colors, theme);
-                grid[row][col] = CellData { c, r, g, b };
+                let fg = ansi_to_rgb(cell.fg, colors, theme);
+                let bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
+                // Only store background if it differs from the default
+                let bg = if bg_rgb == bg_default { None } else { Some(bg_rgb) };
+                grid[row][col] = CellData { c, fg, bg };
             }
         }
 
         let mut spans = Vec::new();
         for row in &grid {
             let mut current_text = String::new();
-            let mut current_r = fg_r;
-            let mut current_g = fg_g;
-            let mut current_b = fg_b;
+            let mut current_fg = (fg_r, fg_g, fg_b);
+            let mut current_bg: Option<(u8, u8, u8)> = None;
             let mut first = true;
 
             for cell in row {
                 if first {
-                    current_r = cell.r;
-                    current_g = cell.g;
-                    current_b = cell.b;
+                    current_fg = cell.fg;
+                    current_bg = cell.bg;
                     first = false;
                 }
 
-                if cell.r == current_r && cell.g == current_g && cell.b == current_b {
+                if cell.fg == current_fg && cell.bg == current_bg {
                     current_text.push(cell.c);
                 } else {
                     if !current_text.is_empty() {
                         spans.push(ColoredSpan {
                             text: current_text.clone(),
-                            r: current_r,
-                            g: current_g,
-                            b: current_b,
+                            r: current_fg.0,
+                            g: current_fg.1,
+                            b: current_fg.2,
+                            bg: current_bg,
                         });
                     }
                     current_text.clear();
                     current_text.push(cell.c);
-                    current_r = cell.r;
-                    current_g = cell.g;
-                    current_b = cell.b;
+                    current_fg = cell.fg;
+                    current_bg = cell.bg;
                 }
             }
             if !current_text.is_empty() {
                 spans.push(ColoredSpan {
                     text: current_text,
-                    r: current_r,
-                    g: current_g,
-                    b: current_b,
+                    r: current_fg.0,
+                    g: current_fg.1,
+                    b: current_fg.2,
+                    bg: current_bg,
                 });
             }
             spans.push(ColoredSpan {
@@ -195,6 +200,7 @@ impl TerminalBackend {
                 r: fg_r,
                 g: fg_g,
                 b: fg_b,
+                bg: None,
             });
         }
         GridContent {
