@@ -121,7 +121,7 @@ impl TerminalSurface {
         // Spawn real PTY terminal
         let cols = (width / cell_width).max(1) as u16;
         let rows = (height / cell_height).max(1) as u16;
-        let backend = TerminalBackend::new(cols, rows);
+        let backend = TerminalBackend::new(cols, rows, cell_width as u16, cell_height as u16);
 
         Self {
             surface,
@@ -162,7 +162,7 @@ impl TerminalSurface {
         let cols = (width / self.cell_width).max(1) as u16;
         let rows = (height / self.cell_height).max(1) as u16;
         if let Some(ref mut backend) = self.backend {
-            backend.resize(cols, rows);
+            backend.resize(cols, rows, self.cell_width as u16, self.cell_height as u16);
         }
     }
 
@@ -195,7 +195,7 @@ impl TerminalSurface {
         let cols = (self.config.width / cw).max(1) as u16;
         let rows = (self.config.height / ch).max(1) as u16;
         if let Some(ref mut backend) = self.backend {
-            backend.resize(cols, rows);
+            backend.resize(cols, rows, self.cell_width as u16, self.cell_height as u16);
         }
 
         log::info!(
@@ -232,7 +232,7 @@ impl TerminalSurface {
     }
 
     /// Read terminal grid and update text buffer, then render.
-    pub fn render_test_frame(&mut self) {
+    pub fn render(&mut self) {
         if let Some(ref backend) = self.backend {
             let content = backend.grid_content(&self.theme);
             let cursor_row = content.cursor_row;

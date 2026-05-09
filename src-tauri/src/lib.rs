@@ -121,7 +121,7 @@ pub fn run() {
 
 					// Render first frame immediately
 					let mut terminal_surface = terminal_surface;
-					terminal_surface.render_test_frame();
+					terminal_surface.render();
 
 					// Store in managed state
 					let sendable_view = std::sync::Arc::new(
@@ -149,7 +149,7 @@ pub fn run() {
 								} else {
 									idle_frames = idle_frames.saturating_add(1);
 								}
-								s.render_test_frame();
+								s.render();
 							}
 							std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
 						}

@@ -42,7 +42,7 @@ pub struct TerminalBackend {
 }
 
 impl TerminalBackend {
-    pub fn new(cols: u16, rows: u16) -> Self {
+    pub fn new(cols: u16, rows: u16, cell_width: u16, cell_height: u16) -> Self {
         let term_size = TermSize::new(cols as usize, rows as usize);
         let term = Term::new(term::Config::default(), &term_size, JsonEventListener);
         let term = Arc::new(FairMutex::new(term));
@@ -58,8 +58,8 @@ impl TerminalBackend {
         let window_size = WindowSize {
             num_cols: cols,
             num_lines: rows,
-            cell_width: 8,
-            cell_height: 18,
+            cell_width,
+            cell_height,
         };
 
         let pty = tty::new(&pty_config, window_size, 0).expect("failed to create PTY");
@@ -88,7 +88,7 @@ impl TerminalBackend {
     }
 
     /// Resize PTY to new dimensions.
-    pub fn resize(&mut self, cols: u16, rows: u16) {
+    pub fn resize(&mut self, cols: u16, rows: u16, cell_width: u16, cell_height: u16) {
         if cols == self.cols && rows == self.rows {
             return;
         }
@@ -97,8 +97,8 @@ impl TerminalBackend {
         let window_size = WindowSize {
             num_cols: cols,
             num_lines: rows,
-            cell_width: 8,
-            cell_height: 18,
+            cell_width,
+            cell_height,
         };
         let _ = self.notifier.0.send(Msg::Resize(window_size));
         // Also resize the terminal grid
