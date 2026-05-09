@@ -6,11 +6,18 @@ use glyphon::{
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-/// Cell dimensions for monospace grid layout (pixels).
-const CELL_WIDTH: u32 = 8;
-const CELL_HEIGHT: u32 = 18;
+/// Default font size in points.
+const DEFAULT_FONT_SIZE: f32 = 14.0;
 /// Padding around the text area (pixels).
 const PADDING: f32 = 8.0;
+
+/// Estimate monospace cell dimensions from font size.
+/// Width ≈ font_size × 0.6 (standard monospace ratio), height ≈ font_size × 1.3.
+fn cell_dimensions(font_size: f32) -> (u32, u32) {
+    let w = (font_size * 0.6).ceil() as u32;
+    let h = (font_size * 1.3).ceil() as u32;
+    (w.max(1), h.max(1))
+}
 
 pub struct TerminalSurface {
     surface: wgpu::Surface<'static>,
@@ -26,6 +33,10 @@ pub struct TerminalSurface {
     backend: Option<TerminalBackend>,
     frame_count: u64,
     theme: TerminalTheme,
+    font_size: f32,
+    font_family: String,
+    cell_width: u32,
+    cell_height: u32,
 }
 
 impl TerminalSurface {
@@ -101,14 +112,15 @@ impl TerminalSurface {
         );
         let viewport = Viewport::new(&device, &cache);
 
-        let font_size = 14.0;
-        let line_height = CELL_HEIGHT as f32;
+        let font_size = DEFAULT_FONT_SIZE;
+        let (cell_width, cell_height) = cell_dimensions(font_size);
+        let line_height = cell_height as f32;
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(font_size, line_height));
         text_buffer.set_size(&mut font_system, Some(width as f32), Some(height as f32));
 
         // Spawn real PTY terminal
-        let cols = (width / CELL_WIDTH).max(1) as u16;
-        let rows = (height / CELL_HEIGHT).max(1) as u16;
+        let cols = (width / cell_width).max(1) as u16;
+        let rows = (height / cell_height).max(1) as u16;
         let backend = TerminalBackend::new(cols, rows);
 
         Self {
@@ -125,6 +137,10 @@ impl TerminalSurface {
             backend: Some(backend),
             frame_count: 0,
             theme: TerminalTheme::default(),
+            font_size,
+            font_family: "JetBrains Mono".to_string(),
+            cell_width,
+            cell_height,
         }
     }
 
@@ -143,8 +159,8 @@ impl TerminalSurface {
         self.text_buffer.shape_until_scroll(&mut self.font_system, false);
 
         // Resize PTY grid to match new pixel dimensions
-        let cols = (width / CELL_WIDTH).max(1) as u16;
-        let rows = (height / CELL_HEIGHT).max(1) as u16;
+        let cols = (width / self.cell_width).max(1) as u16;
+        let rows = (height / self.cell_height).max(1) as u16;
         if let Some(ref mut backend) = self.backend {
             backend.resize(cols, rows);
         }
@@ -153,6 +169,39 @@ impl TerminalSurface {
     /// Apply a new color theme.
     pub fn set_theme(&mut self, theme: TerminalTheme) {
         self.theme = theme;
+    }
+
+    /// Update font family and size. Rebuilds text metrics and resizes PTY grid.
+    pub fn set_font(&mut self, family: String, size: f32) {
+        let size = size.clamp(10.0, 20.0);
+        self.font_family = family;
+        self.font_size = size;
+        let (cw, ch) = cell_dimensions(size);
+        self.cell_width = cw;
+        self.cell_height = ch;
+
+        // Rebuild text buffer with new metrics
+        self.text_buffer = Buffer::new(
+            &mut self.font_system,
+            Metrics::new(size, ch as f32),
+        );
+        self.text_buffer.set_size(
+            &mut self.font_system,
+            Some(self.config.width as f32),
+            Some(self.config.height as f32),
+        );
+
+        // Resize PTY to match new cell dimensions
+        let cols = (self.config.width / cw).max(1) as u16;
+        let rows = (self.config.height / ch).max(1) as u16;
+        if let Some(ref mut backend) = self.backend {
+            backend.resize(cols, rows);
+        }
+
+        log::info!(
+            "native-terminal: font set to {} {}pt (cell {}x{})",
+            self.font_family, size, cw, ch
+        );
     }
 
     /// Quick hash of terminal content for change detection.
@@ -250,14 +299,14 @@ impl TerminalSurface {
             let rich: Vec<(&str, Attrs)> = span_ranges
                 .iter()
                 .map(|&(start, end, r, g, b)| {
-                    (&full_text[start..end], Attrs::new().family(Family::Monospace).color(Color::rgb(r, g, b)))
+                    (&full_text[start..end], Attrs::new().family(Family::Name(&self.font_family)).color(Color::rgb(r, g, b)))
                 })
                 .collect();
 
             self.text_buffer.set_rich_text(
                 &mut self.font_system,
                 rich,
-                &Attrs::new().family(Family::Monospace).color(Color::rgb(
+                &Attrs::new().family(Family::Name(&self.font_family)).color(Color::rgb(
                     self.theme.foreground.0,
                     self.theme.foreground.1,
                     self.theme.foreground.2,

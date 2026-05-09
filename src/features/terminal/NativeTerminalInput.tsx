@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef } from "react";
+import { useTerminalSettingsStore } from "@/features/settings/stores/terminalSettingsStore";
 import { useTerminalTheme } from "@/features/terminal/hooks";
 import type { ITheme } from "@xterm/xterm";
 
@@ -41,6 +42,8 @@ function sendThemeToNative(theme: ITheme) {
 export default function NativeTerminalInput() {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const terminalTheme = useTerminalTheme();
+	const fontFamily = useTerminalSettingsStore((s) => s.fontFamily);
+	const fontSize = useTerminalSettingsStore((s) => s.fontSize);
 
 	// Report container bounds to Rust so NSView can be positioned correctly
 	const syncLayout = useCallback(() => {
@@ -85,6 +88,14 @@ export default function NativeTerminalInput() {
 	useEffect(() => {
 		sendThemeToNative(terminalTheme);
 	}, [terminalTheme]);
+
+	// Sync font settings to native renderer
+	useEffect(() => {
+		invoke("set_native_terminal_font", {
+			family: fontFamily,
+			size: fontSize,
+		}).catch(() => {});
+	}, [fontFamily, fontSize]);
 
 	// Keyboard input forwarding
 	useEffect(() => {

@@ -12,6 +12,18 @@ pub fn write_to_native_terminal(
 	Ok(())
 }
 
+/// Update font family and size for native terminal.
+#[tauri::command]
+pub fn set_native_terminal_font(
+	surface: State<'_, Arc<Mutex<native_terminal::TerminalSurface>>>,
+	family: String,
+	size: f32,
+) -> Result<(), String> {
+	let mut s = surface.lock().map_err(|e| e.to_string())?;
+	s.set_font(family, size);
+	Ok(())
+}
+
 /// Apply terminal color theme from frontend settings.
 #[tauri::command]
 pub fn set_native_terminal_theme(
