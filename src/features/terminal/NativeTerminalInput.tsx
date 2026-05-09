@@ -176,6 +176,24 @@ export default function NativeTerminalInput() {
 		return () => window.removeEventListener("keydown", handler);
 	}, []);
 
+	// Mouse wheel forwarding (scroll in less, man, vim, etc.)
+	useEffect(() => {
+		const handler = (e: WheelEvent) => {
+			// Convert wheel delta to terminal scroll sequences.
+			// Most terminal apps use arrow keys for scroll: Up/Down.
+			// Mouse reporting uses \x1b[M encoding, but simple arrow
+			// keys work universally for basic scroll in less/man/vim.
+			const lines = Math.round(e.deltaY / 30) || (e.deltaY > 0 ? 1 : -1);
+			const seq = lines > 0 ? "\x1b[B" : "\x1b[A";
+			const count = Math.abs(lines);
+			const data = seq.repeat(Math.min(count, 10));
+			invoke("write_to_native_terminal", { data });
+		};
+
+		window.addEventListener("wheel", handler, { passive: true });
+		return () => window.removeEventListener("wheel", handler);
+	}, []);
+
 	// This div marks the area where the native terminal should appear.
 	// It's transparent — the actual rendering is done by wgpu underneath.
 	return (
