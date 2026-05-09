@@ -218,6 +218,7 @@ pub fn run() {
 			handler::native_terminal::write_to_native_terminal,
 			handler::native_terminal::resize_native_terminal,
 			handler::native_terminal::set_native_terminal_visible,
+			handler::native_terminal::set_native_terminal_theme,
 		])
 		.build(tauri::generate_context!())
 		.expect("error while building tauri application");

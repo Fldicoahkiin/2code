@@ -113,7 +113,7 @@ impl TerminalBackend {
     }
 
     /// Lock the terminal and extract visible grid as colored spans with cursor.
-    pub fn grid_content(&self) -> GridContent {
+    pub fn grid_content(&self, theme: &crate::theme::TerminalTheme) -> GridContent {
         let term = self.term.lock();
         let cols = term.grid().columns();
         let lines = term.grid().screen_lines();
@@ -121,6 +121,7 @@ impl TerminalBackend {
         let colors = content.colors;
         let cursor_row = content.cursor.point.line.0 as usize;
         let cursor_col = content.cursor.point.column.0;
+        let (fg_r, fg_g, fg_b) = theme.foreground;
 
         struct CellData {
             c: char,
@@ -132,7 +133,7 @@ impl TerminalBackend {
         let mut grid: Vec<Vec<CellData>> = (0..lines)
             .map(|_| {
                 (0..cols)
-                    .map(|_| CellData { c: ' ', r: 220, g: 220, b: 220 })
+                    .map(|_| CellData { c: ' ', r: fg_r, g: fg_g, b: fg_b })
                     .collect()
             })
             .collect();
@@ -142,7 +143,7 @@ impl TerminalBackend {
             let col = cell.point.column.0;
             if row < lines && col < cols {
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
-                let (r, g, b) = ansi_to_rgb(cell.fg, colors);
+                let (r, g, b) = ansi_to_rgb(cell.fg, colors, theme);
                 grid[row][col] = CellData { c, r, g, b };
             }
         }
@@ -150,9 +151,9 @@ impl TerminalBackend {
         let mut spans = Vec::new();
         for row in &grid {
             let mut current_text = String::new();
-            let mut current_r = 220u8;
-            let mut current_g = 220u8;
-            let mut current_b = 220u8;
+            let mut current_r = fg_r;
+            let mut current_g = fg_g;
+            let mut current_b = fg_b;
             let mut first = true;
 
             for cell in row {
@@ -191,9 +192,9 @@ impl TerminalBackend {
             }
             spans.push(ColoredSpan {
                 text: "\n".to_string(),
-                r: 220,
-                g: 220,
-                b: 220,
+                r: fg_r,
+                g: fg_g,
+                b: fg_b,
             });
         }
         GridContent {
@@ -212,34 +213,19 @@ impl TerminalBackend {
     }
 }
 
-fn ansi_to_rgb(color: AnsiColor, colors: &alacritty_terminal::term::color::Colors) -> (u8, u8, u8) {
+fn ansi_to_rgb(
+    color: AnsiColor,
+    colors: &alacritty_terminal::term::color::Colors,
+    theme: &crate::theme::TerminalTheme,
+) -> (u8, u8, u8) {
     match color {
-        AnsiColor::Named(named) => named_to_rgb(named),
+        AnsiColor::Named(named) => named_to_rgb(named, theme),
         AnsiColor::Spec(rgb) => (rgb.r, rgb.g, rgb.b),
         AnsiColor::Indexed(idx) => {
             if let Some(c) = colors[idx as usize] {
                 (c.r, c.g, c.b)
             } else if idx < 16 {
-                // Standard 16 colors
-                named_to_rgb(match idx {
-                    0 => NamedColor::Black,
-                    1 => NamedColor::Red,
-                    2 => NamedColor::Green,
-                    3 => NamedColor::Yellow,
-                    4 => NamedColor::Blue,
-                    5 => NamedColor::Magenta,
-                    6 => NamedColor::Cyan,
-                    7 => NamedColor::White,
-                    8 => NamedColor::BrightBlack,
-                    9 => NamedColor::BrightRed,
-                    10 => NamedColor::BrightGreen,
-                    11 => NamedColor::BrightYellow,
-                    12 => NamedColor::BrightBlue,
-                    13 => NamedColor::BrightMagenta,
-                    14 => NamedColor::BrightCyan,
-                    15 => NamedColor::BrightWhite,
-                    _ => NamedColor::White,
-                })
+                theme.named_color(idx as usize)
             } else if idx < 232 {
                 // 216 color cube (6x6x6)
                 let idx = idx - 16;
@@ -256,24 +242,28 @@ fn ansi_to_rgb(color: AnsiColor, colors: &alacritty_terminal::term::color::Color
     }
 }
 
-fn named_to_rgb(c: NamedColor) -> (u8, u8, u8) {
-    match c {
-        NamedColor::Black => (30, 30, 30),
-        NamedColor::Red => (204, 60, 60),
-        NamedColor::Green => (80, 200, 80),
-        NamedColor::Yellow => (220, 200, 60),
-        NamedColor::Blue => (60, 120, 220),
-        NamedColor::Magenta => (180, 80, 200),
-        NamedColor::Cyan => (80, 200, 200),
-        NamedColor::White => (220, 220, 220),
-        NamedColor::BrightBlack => (100, 100, 100),
-        NamedColor::BrightRed => (255, 100, 100),
-        NamedColor::BrightGreen => (100, 255, 100),
-        NamedColor::BrightYellow => (255, 255, 100),
-        NamedColor::BrightBlue => (100, 150, 255),
-        NamedColor::BrightMagenta => (255, 100, 255),
-        NamedColor::BrightCyan => (100, 255, 255),
-        NamedColor::BrightWhite => (255, 255, 255),
-        _ => (220, 220, 220),
-    }
+fn named_to_rgb(c: NamedColor, theme: &crate::theme::TerminalTheme) -> (u8, u8, u8) {
+    let idx = match c {
+        NamedColor::Black => 0,
+        NamedColor::Red => 1,
+        NamedColor::Green => 2,
+        NamedColor::Yellow => 3,
+        NamedColor::Blue => 4,
+        NamedColor::Magenta => 5,
+        NamedColor::Cyan => 6,
+        NamedColor::White => 7,
+        NamedColor::BrightBlack => 8,
+        NamedColor::BrightRed => 9,
+        NamedColor::BrightGreen => 10,
+        NamedColor::BrightYellow => 11,
+        NamedColor::BrightBlue => 12,
+        NamedColor::BrightMagenta => 13,
+        NamedColor::BrightCyan => 14,
+        NamedColor::BrightWhite => 15,
+        NamedColor::Foreground => return theme.foreground,
+        NamedColor::Background => return theme.background,
+        NamedColor::Cursor => return theme.cursor,
+        _ => return theme.foreground,
+    };
+    theme.named_color(idx)
 }

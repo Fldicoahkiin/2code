@@ -1,4 +1,5 @@
 use crate::terminal::TerminalBackend;
+use crate::theme::TerminalTheme;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
@@ -24,6 +25,7 @@ pub struct TerminalSurface {
     text_buffer: Buffer,
     backend: Option<TerminalBackend>,
     frame_count: u64,
+    theme: TerminalTheme,
 }
 
 impl TerminalSurface {
@@ -122,6 +124,7 @@ impl TerminalSurface {
             text_buffer,
             backend: Some(backend),
             frame_count: 0,
+            theme: TerminalTheme::default(),
         }
     }
 
@@ -147,10 +150,15 @@ impl TerminalSurface {
         }
     }
 
+    /// Apply a new color theme.
+    pub fn set_theme(&mut self, theme: TerminalTheme) {
+        self.theme = theme;
+    }
+
     /// Quick hash of terminal content for change detection.
     pub fn content_hash(&self) -> u64 {
         if let Some(ref backend) = self.backend {
-            let content = backend.grid_content();
+            let content = backend.grid_content(&self.theme);
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             for span in &content.spans {
@@ -177,7 +185,7 @@ impl TerminalSurface {
     /// Read terminal grid and update text buffer, then render.
     pub fn render_test_frame(&mut self) {
         if let Some(ref backend) = self.backend {
-            let content = backend.grid_content();
+            let content = backend.grid_content(&self.theme);
             let cursor_row = content.cursor_row;
             let cursor_col = content.cursor_col;
 
@@ -194,7 +202,8 @@ impl TerminalSurface {
                 if span.text == "\n" {
                     let start = full_text.len();
                     full_text.push('\n');
-                    span_ranges.push((start, full_text.len(), 220, 220, 220));
+                    let (fr, fg, fb) = self.theme.foreground;
+                    span_ranges.push((start, full_text.len(), fr, fg, fb));
                     line += 1;
                     col = 0;
                     continue;
@@ -216,10 +225,11 @@ impl TerminalSurface {
                         span_ranges.push((start, full_text.len(), span.r, span.g, span.b));
                     }
 
-                    // Cursor char (inverted: dark text on light bg — text color trick)
+                    // Cursor char (inverted: use background color as text)
                     let start = full_text.len();
                     full_text.push(chars.get(offset).copied().unwrap_or(' '));
-                    span_ranges.push((start, full_text.len(), 30, 30, 30));
+                    let (br, bg, bb) = self.theme.background;
+                    span_ranges.push((start, full_text.len(), br, bg, bb));
 
                     // After cursor
                     if offset + 1 < chars.len() {
@@ -247,7 +257,11 @@ impl TerminalSurface {
             self.text_buffer.set_rich_text(
                 &mut self.font_system,
                 rich,
-                &Attrs::new().family(Family::Monospace).color(Color::rgb(220, 220, 220)),
+                &Attrs::new().family(Family::Monospace).color(Color::rgb(
+                    self.theme.foreground.0,
+                    self.theme.foreground.1,
+                    self.theme.foreground.2,
+                )),
                 Shaping::Advanced,
                 None,
             );
@@ -286,7 +300,11 @@ impl TerminalSurface {
                 right: self.config.width as i32,
                 bottom: self.config.height as i32,
             },
-            default_color: Color::rgb(220, 220, 220),
+            default_color: Color::rgb(
+                self.theme.foreground.0,
+                self.theme.foreground.1,
+                self.theme.foreground.2,
+            ),
             custom_glyphs: &[],
         };
 
@@ -316,9 +334,9 @@ impl TerminalSurface {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.071,
-                            g: 0.075,
-                            b: 0.106,
+                            r: self.theme.background.0 as f64 / 255.0,
+                            g: self.theme.background.1 as f64 / 255.0,
+                            b: self.theme.background.2 as f64 / 255.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,

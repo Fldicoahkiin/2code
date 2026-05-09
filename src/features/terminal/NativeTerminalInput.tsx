@@ -1,5 +1,37 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef } from "react";
+import { useTerminalTheme } from "@/features/terminal/hooks";
+import type { ITheme } from "@xterm/xterm";
+
+function sendThemeToNative(theme: ITheme) {
+	const bg = theme.background ?? "#161616";
+	const fg = theme.foreground ?? "#BFD4E1";
+	const cur = theme.cursor ?? "#f0f3bd";
+	const ansiColors = [
+		theme.black ?? "#353535",
+		theme.red ?? "#d97397",
+		theme.green ?? "#CEE397",
+		theme.yellow ?? "#E9CA5C",
+		theme.blue ?? "#63B0C6",
+		theme.magenta ?? "#E9AEBA",
+		theme.cyan ?? "#70C1B3",
+		theme.white ?? "#BFD4E1",
+		theme.brightBlack ?? "#729098",
+		theme.brightRed ?? "#ffadad",
+		theme.brightGreen ?? "#caffbf",
+		theme.brightYellow ?? "#f0f3bd",
+		theme.brightBlue ?? "#9bf6ff",
+		theme.brightMagenta ?? "#ffc6ff",
+		theme.brightCyan ?? "#a8dadc",
+		theme.brightWhite ?? "#ffffff",
+	];
+	invoke("set_native_terminal_theme", {
+		background: bg,
+		foreground: fg,
+		cursor: cur,
+		ansiColors,
+	}).catch(() => {});
+}
 
 /**
  * PoC: Keyboard listener + layout sync for native wgpu terminal.
@@ -8,6 +40,7 @@ import { useCallback, useEffect, useRef } from "react";
  */
 export default function NativeTerminalInput() {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const terminalTheme = useTerminalTheme();
 
 	// Report container bounds to Rust so NSView can be positioned correctly
 	const syncLayout = useCallback(() => {
@@ -47,6 +80,11 @@ export default function NativeTerminalInput() {
 			invoke("set_native_terminal_visible", { visible: false }).catch(() => {});
 		};
 	}, [syncLayout]);
+
+	// Sync terminal theme to native renderer
+	useEffect(() => {
+		sendThemeToNative(terminalTheme);
+	}, [terminalTheme]);
 
 	// Keyboard input forwarding
 	useEffect(() => {
