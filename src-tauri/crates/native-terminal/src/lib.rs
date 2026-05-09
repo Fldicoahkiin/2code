@@ -1,3 +1,4 @@
+mod cursor;
 mod surface;
 mod terminal;
 mod theme;

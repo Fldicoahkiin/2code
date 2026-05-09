@@ -1,3 +1,4 @@
+use crate::cursor::CursorRenderer;
 use crate::terminal::TerminalBackend;
 use crate::theme::TerminalTheme;
 use glyphon::{
@@ -37,6 +38,9 @@ pub struct TerminalSurface {
     font_family: String,
     cell_width: u32,
     cell_height: u32,
+    cursor_renderer: CursorRenderer,
+    /// Cursor position in grid coordinates, updated each frame.
+    cursor_pos: Option<(usize, usize)>,
 }
 
 impl TerminalSurface {
@@ -122,6 +126,7 @@ impl TerminalSurface {
         let cols = (width / cell_width).max(1) as u16;
         let rows = (height / cell_height).max(1) as u16;
         let backend = TerminalBackend::new(cols, rows, cell_width as u16, cell_height as u16);
+        let cursor_renderer = CursorRenderer::new(&device, format);
 
         Self {
             surface,
@@ -141,6 +146,8 @@ impl TerminalSurface {
             font_family: "JetBrains Mono".to_string(),
             cell_width,
             cell_height,
+            cursor_renderer,
+            cursor_pos: None,
         }
     }
 
@@ -234,6 +241,11 @@ impl TerminalSurface {
 
             self.frame_count += 1;
             let cursor_visible = (self.frame_count / 30).is_multiple_of(2);
+            self.cursor_pos = if cursor_visible {
+                Some((cursor_row, cursor_col))
+            } else {
+                None
+            };
 
             // Build owned text + span ranges to avoid lifetime issues
             let mut full_text = String::with_capacity(4096);
@@ -372,9 +384,10 @@ impl TerminalSurface {
                 label: Some("native-terminal-encoder"),
             });
 
+        // Pass 1: Clear background
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("native-terminal-pass"),
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -385,6 +398,44 @@ impl TerminalSurface {
                             b: self.theme.background.2 as f64 / 255.0,
                             a: 1.0,
                         }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+
+        // Pass 2: Draw cursor block (behind text)
+        if let Some((row, col)) = self.cursor_pos {
+            let (cr, cg, cb) = self.theme.cursor;
+            self.cursor_renderer.render(
+                &mut encoder,
+                &view,
+                &self.queue,
+                &self.device,
+                crate::cursor::CursorRect {
+                    x: PADDING as u32 + col as u32 * self.cell_width,
+                    y: PADDING as u32 + row as u32 * self.cell_height,
+                    width: self.cell_width,
+                    height: self.cell_height,
+                    color: [cr as f32 / 255.0, cg as f32 / 255.0, cb as f32 / 255.0, 1.0],
+                },
+            );
+        }
+
+        // Pass 3: Render text on top
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("text-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
