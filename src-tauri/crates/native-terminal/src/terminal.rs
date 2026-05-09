@@ -87,6 +87,26 @@ impl TerminalBackend {
         }
     }
 
+    /// Resize PTY to new dimensions.
+    pub fn resize(&mut self, cols: u16, rows: u16) {
+        if cols == self.cols && rows == self.rows {
+            return;
+        }
+        self.cols = cols;
+        self.rows = rows;
+        let window_size = WindowSize {
+            num_cols: cols,
+            num_lines: rows,
+            cell_width: 8,
+            cell_height: 18,
+        };
+        let _ = self.notifier.0.send(Msg::Resize(window_size));
+        // Also resize the terminal grid
+        let mut term = self.term.lock();
+        term.resize(TermSize::new(cols as usize, rows as usize));
+        log::info!("native-terminal: PTY resized to {cols}x{rows}");
+    }
+
     /// Send raw input bytes to the PTY.
     pub fn write(&self, data: &[u8]) {
         let _ = self.notifier.0.send(Msg::Input(data.to_vec().into()));

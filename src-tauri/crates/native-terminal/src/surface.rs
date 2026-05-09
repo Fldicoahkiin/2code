@@ -5,6 +5,12 @@ use glyphon::{
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
+/// Cell dimensions for monospace grid layout (pixels).
+const CELL_WIDTH: u32 = 8;
+const CELL_HEIGHT: u32 = 18;
+/// Padding around the text area (pixels).
+const PADDING: f32 = 8.0;
+
 pub struct TerminalSurface {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -94,13 +100,13 @@ impl TerminalSurface {
         let viewport = Viewport::new(&device, &cache);
 
         let font_size = 14.0;
-        let line_height = 18.0;
+        let line_height = CELL_HEIGHT as f32;
         let mut text_buffer = Buffer::new(&mut font_system, Metrics::new(font_size, line_height));
         text_buffer.set_size(&mut font_system, Some(width as f32), Some(height as f32));
 
         // Spawn real PTY terminal
-        let cols = (width / 8).max(1) as u16; // rough estimate: 8px per char
-        let rows = (height / 18).max(1) as u16; // line_height = 18
+        let cols = (width / CELL_WIDTH).max(1) as u16;
+        let rows = (height / CELL_HEIGHT).max(1) as u16;
         let backend = TerminalBackend::new(cols, rows);
 
         Self {
@@ -132,6 +138,13 @@ impl TerminalSurface {
             Some(height as f32),
         );
         self.text_buffer.shape_until_scroll(&mut self.font_system, false);
+
+        // Resize PTY grid to match new pixel dimensions
+        let cols = (width / CELL_WIDTH).max(1) as u16;
+        let rows = (height / CELL_HEIGHT).max(1) as u16;
+        if let Some(ref mut backend) = self.backend {
+            backend.resize(cols, rows);
+        }
     }
 
     /// Quick hash of terminal content for change detection.
@@ -169,7 +182,7 @@ impl TerminalSurface {
             let cursor_col = content.cursor_col;
 
             self.frame_count += 1;
-            let cursor_visible = (self.frame_count / 30) % 2 == 0;
+            let cursor_visible = (self.frame_count / 30).is_multiple_of(2);
 
             // Build owned text + span ranges to avoid lifetime issues
             let mut full_text = String::with_capacity(4096);
@@ -233,7 +246,7 @@ impl TerminalSurface {
 
             self.text_buffer.set_rich_text(
                 &mut self.font_system,
-                rich.into_iter(),
+                rich,
                 &Attrs::new().family(Family::Monospace).color(Color::rgb(220, 220, 220)),
                 Shaping::Advanced,
                 None,
@@ -264,8 +277,8 @@ impl TerminalSurface {
 
         let text_area = TextArea {
             buffer: &self.text_buffer,
-            left: 8.0,
-            top: 8.0,
+            left: PADDING,
+            top: PADDING,
             scale: 1.0,
             bounds: TextBounds {
                 left: 0,
