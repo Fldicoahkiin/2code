@@ -141,14 +141,26 @@ export default function NativeTerminalInput() {
 				return;
 
 			// Ctrl+letter → send as control character (e.g. Ctrl+C = 0x03)
-			if (e.metaKey || e.ctrlKey) {
-				if (e.ctrlKey && e.key.length === 1 && /[a-z]/i.test(e.key)) {
+			if (e.ctrlKey && !e.metaKey) {
+				if (e.key.length === 1 && /[a-z]/i.test(e.key)) {
 					e.preventDefault();
 					const charCode = e.key.toLowerCase().charCodeAt(0) - 96;
 					invoke("write_to_native_terminal", {
 						data: String.fromCharCode(charCode),
 					});
 				}
+				return;
+			}
+
+			// Cmd+key — let the system handle (copy, paste, etc.)
+			if (e.metaKey) return;
+
+			// Alt+key → send ESC + key (terminal meta mode)
+			if (e.altKey && e.key.length === 1) {
+				e.preventDefault();
+				invoke("write_to_native_terminal", {
+					data: "\x1b" + e.key,
+				});
 				return;
 			}
 

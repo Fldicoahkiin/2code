@@ -33,15 +33,11 @@ impl NativeTerminalView {
             .contentView()
             .expect("NSWindow has no contentView");
 
-        let content_frame = content_view.frame();
-
-        // Terminal view occupies the right half of the window (PoC layout).
+        // Start with zero-size frame — frontend will set the real position
+        // via resize_native_terminal once the terminal container mounts.
         let terminal_frame = NSRect::new(
-            NSPoint::new(content_frame.size.width / 2.0, 0.0),
-            NSSize::new(
-                content_frame.size.width / 2.0,
-                content_frame.size.height,
-            ),
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(1.0, 1.0),
         );
 
         let ns_view = NSView::initWithFrame(NSView::alloc(mtm), terminal_frame);
