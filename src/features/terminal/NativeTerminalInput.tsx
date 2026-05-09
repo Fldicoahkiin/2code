@@ -4,6 +4,36 @@ import { useTerminalSettingsStore } from "@/features/settings/stores/terminalSet
 import { useTerminalTheme } from "@/features/terminal/hooks";
 import type { ITheme } from "@xterm/xterm";
 
+/** Map special keys to terminal escape sequences. */
+const KEY_MAP: Record<string, string> = {
+	Enter: "\r",
+	Backspace: "\x7f",
+	Tab: "\t",
+	Escape: "\x1b",
+	ArrowUp: "\x1b[A",
+	ArrowDown: "\x1b[B",
+	ArrowRight: "\x1b[C",
+	ArrowLeft: "\x1b[D",
+	Home: "\x1b[H",
+	End: "\x1b[F",
+	Delete: "\x1b[3~",
+	PageUp: "\x1b[5~",
+	PageDown: "\x1b[6~",
+	Insert: "\x1b[2~",
+	F1: "\x1bOP",
+	F2: "\x1bOQ",
+	F3: "\x1bOR",
+	F4: "\x1bOS",
+	F5: "\x1b[15~",
+	F6: "\x1b[17~",
+	F7: "\x1b[18~",
+	F8: "\x1b[19~",
+	F9: "\x1b[20~",
+	F10: "\x1b[21~",
+	F11: "\x1b[23~",
+	F12: "\x1b[24~",
+};
+
 function sendThemeToNative(theme: ITheme) {
 	const bg = theme.background ?? "#161616";
 	const fg = theme.foreground ?? "#BFD4E1";
@@ -80,7 +110,9 @@ export default function NativeTerminalInput() {
 			observer.disconnect();
 			window.removeEventListener("resize", syncLayout);
 			// Hide native view when unmounted or tab switches away
-			invoke("set_native_terminal_visible", { visible: false }).catch(() => {});
+			invoke("set_native_terminal_visible", { visible: false }).catch(
+				() => {},
+			);
 		};
 	}, [syncLayout]);
 
@@ -101,37 +133,29 @@ export default function NativeTerminalInput() {
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
 			if (
-				e.key === "Meta"
-				|| e.key === "Control"
-				|| e.key === "Alt"
-				|| e.key === "Shift"
+				e.key === "Meta" ||
+				e.key === "Control" ||
+				e.key === "Alt" ||
+				e.key === "Shift"
 			)
 				return;
+
+			// Ctrl+letter → send as control character (e.g. Ctrl+C = 0x03)
 			if (e.metaKey || e.ctrlKey) {
-				if (e.ctrlKey && "cdlz".includes(e.key.toLowerCase())) {
+				if (e.ctrlKey && e.key.length === 1 && /[a-z]/i.test(e.key)) {
 					e.preventDefault();
 					const charCode = e.key.toLowerCase().charCodeAt(0) - 96;
 					invoke("write_to_native_terminal", {
 						data: String.fromCharCode(charCode),
 					});
-					return;
 				}
 				return;
 			}
 
 			e.preventDefault();
 
-			let data: string;
-			if (e.key === "Enter") data = "\r";
-			else if (e.key === "Backspace") data = "\x7f";
-			else if (e.key === "Tab") data = "\t";
-			else if (e.key === "Escape") data = "\x1b";
-			else if (e.key === "ArrowUp") data = "\x1b[A";
-			else if (e.key === "ArrowDown") data = "\x1b[B";
-			else if (e.key === "ArrowRight") data = "\x1b[C";
-			else if (e.key === "ArrowLeft") data = "\x1b[D";
-			else if (e.key.length === 1) data = e.key;
-			else return;
+			const data = KEY_MAP[e.key] ?? (e.key.length === 1 ? e.key : null);
+			if (!data) return;
 
 			invoke("write_to_native_terminal", { data });
 		};

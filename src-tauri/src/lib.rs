@@ -142,14 +142,13 @@ pub fn run() {
 						loop {
 							let sleep_ms = if idle_frames > 10 { 250 } else { 33 };
 							if let Ok(mut s) = surface_for_thread.lock() {
-								let hash = s.content_hash();
+								let hash = s.render();
 								if hash != last_text_hash {
 									last_text_hash = hash;
 									idle_frames = 0;
 								} else {
 									idle_frames = idle_frames.saturating_add(1);
 								}
-								s.render();
 							}
 							std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
 						}

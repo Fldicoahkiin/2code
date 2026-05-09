@@ -204,10 +204,20 @@ impl TerminalSurface {
         );
     }
 
-    /// Quick hash of terminal content for change detection.
-    pub fn content_hash(&self) -> u64 {
+    /// Send input bytes to the PTY.
+    pub fn write_to_pty(&self, data: &[u8]) {
         if let Some(ref backend) = self.backend {
+            backend.write(data);
+        }
+    }
+
+    /// Read terminal grid, update text buffer, render, and return content hash.
+    /// The hash can be used for idle detection without a separate grid read.
+    pub fn render(&mut self) -> u64 {
+        let content_hash = if let Some(ref backend) = self.backend {
             let content = backend.grid_content(&self.theme);
+
+            // Compute hash from grid content
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             for span in &content.spans {
@@ -218,23 +228,7 @@ impl TerminalSurface {
             }
             content.cursor_row.hash(&mut hasher);
             content.cursor_col.hash(&mut hasher);
-            hasher.finish()
-        } else {
-            0
-        }
-    }
-
-    /// Send input bytes to the PTY.
-    pub fn write_to_pty(&self, data: &[u8]) {
-        if let Some(ref backend) = self.backend {
-            backend.write(data);
-        }
-    }
-
-    /// Read terminal grid and update text buffer, then render.
-    pub fn render(&mut self) {
-        if let Some(ref backend) = self.backend {
-            let content = backend.grid_content(&self.theme);
+            let hash = hasher.finish();
             let cursor_row = content.cursor_row;
             let cursor_col = content.cursor_col;
 
@@ -315,14 +309,17 @@ impl TerminalSurface {
                 None,
             );
             self.text_buffer.shape_until_scroll(&mut self.font_system, false);
-        }
+            hash
+        } else {
+            0
+        };
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             _ => {
                 self.surface.configure(&self.device, &self.config);
-                return;
+                return content_hash;
             }
         };
 
@@ -406,5 +403,6 @@ impl TerminalSurface {
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
         self.text_atlas.trim();
+        content_hash
     }
 }
