@@ -1,4 +1,4 @@
-use crate::cursor::CursorRenderer;
+use crate::cursor::{CursorRect, RectRenderer};
 use crate::terminal::TerminalBackend;
 use crate::theme::TerminalTheme;
 use glyphon::{
@@ -38,7 +38,7 @@ pub struct TerminalSurface {
     font_family: String,
     cell_width: u32,
     cell_height: u32,
-    cursor_renderer: CursorRenderer,
+    rect_renderer: RectRenderer,
     /// Cursor position in grid coordinates, updated each frame.
     cursor_pos: Option<(usize, usize)>,
 }
@@ -126,7 +126,7 @@ impl TerminalSurface {
         let cols = (width / cell_width).max(1) as u16;
         let rows = (height / cell_height).max(1) as u16;
         let backend = TerminalBackend::new(cols, rows, cell_width as u16, cell_height as u16);
-        let cursor_renderer = CursorRenderer::new(&device, format);
+        let rect_renderer = RectRenderer::new(&device, format);
 
         Self {
             surface,
@@ -146,7 +146,7 @@ impl TerminalSurface {
             font_family: "JetBrains Mono".to_string(),
             cell_width,
             cell_height,
-            cursor_renderer,
+            rect_renderer,
             cursor_pos: None,
         }
     }
@@ -419,38 +419,36 @@ impl TerminalSurface {
             });
         }
 
-        // Pass 2a: Draw cell background colors
-        for &(row, col_start, col_count, r, g, b) in &bg_rects {
-            self.cursor_renderer.render(
-                &mut encoder,
-                &view,
-                &self.queue,
-                &self.device,
-                crate::cursor::CursorRect {
+        // Pass 2: Draw cell backgrounds + cursor block (batched by color)
+        {
+            let mut all_rects: Vec<CursorRect> = bg_rects
+                .iter()
+                .map(|&(row, col_start, col_count, r, g, b)| CursorRect {
                     x: PADDING as u32 + col_start as u32 * self.cell_width,
                     y: PADDING as u32 + row as u32 * self.cell_height,
                     width: col_count as u32 * self.cell_width,
                     height: self.cell_height,
                     color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
-                },
-            );
-        }
+                })
+                .collect();
 
-        // Pass 2b: Draw cursor block (behind text)
-        if let Some((row, col)) = self.cursor_pos {
-            let (cr, cg, cb) = self.theme.cursor;
-            self.cursor_renderer.render(
-                &mut encoder,
-                &view,
-                &self.queue,
-                &self.device,
-                crate::cursor::CursorRect {
+            if let Some((row, col)) = self.cursor_pos {
+                let (cr, cg, cb) = self.theme.cursor;
+                all_rects.push(CursorRect {
                     x: PADDING as u32 + col as u32 * self.cell_width,
                     y: PADDING as u32 + row as u32 * self.cell_height,
                     width: self.cell_width,
                     height: self.cell_height,
                     color: [cr as f32 / 255.0, cg as f32 / 255.0, cb as f32 / 255.0, 1.0],
-                },
+                });
+            }
+
+            self.rect_renderer.render_batch(
+                &mut encoder,
+                &view,
+                &self.queue,
+                &self.device,
+                &mut all_rects,
             );
         }
 
