@@ -9,7 +9,7 @@ use alacritty_terminal::sync::FairMutex;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-/// A span of text with foreground and background colors.
+/// A span of text with foreground/background colors and style attributes.
 pub struct ColoredSpan {
     pub text: String,
     /// Foreground RGB.
@@ -18,6 +18,9 @@ pub struct ColoredSpan {
     pub b: u8,
     /// Background RGB, None means default (transparent).
     pub bg: Option<(u8, u8, u8)>,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
 }
 
 /// Terminal grid content with cursor position.
@@ -134,16 +137,34 @@ impl TerminalBackend {
         let (fg_r, fg_g, fg_b) = theme.foreground;
         let bg_default = theme.background;
 
-        struct CellData {
-            c: char,
+        use alacritty_terminal::term::cell::Flags;
+
+        #[derive(Clone, Copy, PartialEq)]
+        struct CellAttrs {
             fg: (u8, u8, u8),
             bg: Option<(u8, u8, u8)>,
+            bold: bool,
+            italic: bool,
+            underline: bool,
         }
+
+        struct CellData {
+            c: char,
+            attrs: CellAttrs,
+        }
+
+        let default_attrs = CellAttrs {
+            fg: (fg_r, fg_g, fg_b),
+            bg: None,
+            bold: false,
+            italic: false,
+            underline: false,
+        };
 
         let mut grid: Vec<Vec<CellData>> = (0..lines)
             .map(|_| {
                 (0..cols)
-                    .map(|_| CellData { c: ' ', fg: (fg_r, fg_g, fg_b), bg: None })
+                    .map(|_| CellData { c: ' ', attrs: default_attrs })
                     .collect()
             })
             .collect();
@@ -155,51 +176,61 @@ impl TerminalBackend {
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
                 let fg = ansi_to_rgb(cell.fg, colors, theme);
                 let bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
-                // Only store background if it differs from the default
                 let bg = if bg_rgb == bg_default { None } else { Some(bg_rgb) };
-                grid[row][col] = CellData { c, fg, bg };
+                let flags = cell.flags;
+                let attrs = CellAttrs {
+                    fg,
+                    bg,
+                    bold: flags.contains(Flags::BOLD),
+                    italic: flags.contains(Flags::ITALIC),
+                    underline: flags.intersects(Flags::ALL_UNDERLINES),
+                };
+                grid[row][col] = CellData { c, attrs };
             }
         }
 
         let mut spans = Vec::new();
         for row in &grid {
             let mut current_text = String::new();
-            let mut current_fg = (fg_r, fg_g, fg_b);
-            let mut current_bg: Option<(u8, u8, u8)> = None;
+            let mut current = default_attrs;
             let mut first = true;
 
             for cell in row {
                 if first {
-                    current_fg = cell.fg;
-                    current_bg = cell.bg;
+                    current = cell.attrs;
                     first = false;
                 }
 
-                if cell.fg == current_fg && cell.bg == current_bg {
+                if cell.attrs == current {
                     current_text.push(cell.c);
                 } else {
                     if !current_text.is_empty() {
                         spans.push(ColoredSpan {
                             text: current_text.clone(),
-                            r: current_fg.0,
-                            g: current_fg.1,
-                            b: current_fg.2,
-                            bg: current_bg,
+                            r: current.fg.0,
+                            g: current.fg.1,
+                            b: current.fg.2,
+                            bg: current.bg,
+                            bold: current.bold,
+                            italic: current.italic,
+                            underline: current.underline,
                         });
                     }
                     current_text.clear();
                     current_text.push(cell.c);
-                    current_fg = cell.fg;
-                    current_bg = cell.bg;
+                    current = cell.attrs;
                 }
             }
             if !current_text.is_empty() {
                 spans.push(ColoredSpan {
                     text: current_text,
-                    r: current_fg.0,
-                    g: current_fg.1,
-                    b: current_fg.2,
-                    bg: current_bg,
+                    r: current.fg.0,
+                    g: current.fg.1,
+                    b: current.fg.2,
+                    bg: current.bg,
+                    bold: current.bold,
+                    italic: current.italic,
+                    underline: current.underline,
                 });
             }
             spans.push(ColoredSpan {
@@ -208,6 +239,9 @@ impl TerminalBackend {
                 g: fg_g,
                 b: fg_b,
                 bg: None,
+                bold: false,
+                italic: false,
+                underline: false,
             });
         }
         GridContent {

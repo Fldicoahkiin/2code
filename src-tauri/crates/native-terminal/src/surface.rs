@@ -250,6 +250,9 @@ impl TerminalSurface {
                 span.g.hash(&mut hasher);
                 span.b.hash(&mut hasher);
                 span.bg.hash(&mut hasher);
+                span.bold.hash(&mut hasher);
+                span.italic.hash(&mut hasher);
+                span.underline.hash(&mut hasher);
             }
             content.cursor_row.hash(&mut hasher);
             content.cursor_col.hash(&mut hasher);
@@ -266,8 +269,18 @@ impl TerminalSurface {
             };
 
             // Build owned text + span ranges to avoid lifetime issues
+            struct SpanRange {
+                start: usize,
+                end: usize,
+                r: u8,
+                g: u8,
+                b: u8,
+                bold: bool,
+                italic: bool,
+            }
+
             let mut full_text = String::with_capacity(4096);
-            let mut span_ranges: Vec<(usize, usize, u8, u8, u8)> = Vec::new(); // (start, end, r, g, b)
+            let mut span_ranges: Vec<SpanRange> = Vec::new();
             let mut line = 0usize;
             let mut col = 0usize;
 
@@ -276,7 +289,10 @@ impl TerminalSurface {
                     let start = full_text.len();
                     full_text.push('\n');
                     let (fr, fg, fb) = self.theme.foreground;
-                    span_ranges.push((start, full_text.len(), fr, fg, fb));
+                    span_ranges.push(SpanRange {
+                        start, end: full_text.len(), r: fr, g: fg, b: fb,
+                        bold: false, italic: false,
+                    });
                     line += 1;
                     col = 0;
                     continue;
@@ -293,6 +309,10 @@ impl TerminalSurface {
                     bg_rects.push((line, span_start_col, char_count, br, bg_color, bb));
                 }
 
+                let push = |sr: &mut Vec<SpanRange>, start, end, r, g, b, bold, italic| {
+                    sr.push(SpanRange { start, end, r, g, b, bold, italic });
+                };
+
                 if cursor_in_span {
                     let offset = cursor_col - span_start_col;
                     let chars: Vec<char> = span.text.chars().collect();
@@ -301,25 +321,28 @@ impl TerminalSurface {
                     if offset > 0 {
                         let start = full_text.len();
                         for &c in &chars[..offset] { full_text.push(c); }
-                        span_ranges.push((start, full_text.len(), span.r, span.g, span.b));
+                        push(&mut span_ranges, start, full_text.len(),
+                             span.r, span.g, span.b, span.bold, span.italic);
                     }
 
                     // Cursor char (inverted: use background color as text)
                     let start = full_text.len();
                     full_text.push(chars.get(offset).copied().unwrap_or(' '));
                     let (br, bg, bb) = self.theme.background;
-                    span_ranges.push((start, full_text.len(), br, bg, bb));
+                    push(&mut span_ranges, start, full_text.len(), br, bg, bb, false, false);
 
                     // After cursor
                     if offset + 1 < chars.len() {
                         let start = full_text.len();
                         for &c in &chars[offset + 1..] { full_text.push(c); }
-                        span_ranges.push((start, full_text.len(), span.r, span.g, span.b));
+                        push(&mut span_ranges, start, full_text.len(),
+                             span.r, span.g, span.b, span.bold, span.italic);
                     }
                 } else {
                     let start = full_text.len();
                     full_text.push_str(&span.text);
-                    span_ranges.push((start, full_text.len(), span.r, span.g, span.b));
+                    push(&mut span_ranges, start, full_text.len(),
+                         span.r, span.g, span.b, span.bold, span.italic);
                 }
 
                 col = span_end_col;
@@ -328,8 +351,17 @@ impl TerminalSurface {
             // Build rich text spans from owned string
             let rich: Vec<(&str, Attrs)> = span_ranges
                 .iter()
-                .map(|&(start, end, r, g, b)| {
-                    (&full_text[start..end], Attrs::new().family(Family::Name(&self.font_family)).color(Color::rgb(r, g, b)))
+                .map(|sr| {
+                    let mut attrs = Attrs::new()
+                        .family(Family::Name(&self.font_family))
+                        .color(Color::rgb(sr.r, sr.g, sr.b));
+                    if sr.bold {
+                        attrs = attrs.weight(glyphon::Weight::BOLD);
+                    }
+                    if sr.italic {
+                        attrs = attrs.style(glyphon::Style::Italic);
+                    }
+                    (&full_text[sr.start..sr.end], attrs)
                 })
                 .collect();
 
