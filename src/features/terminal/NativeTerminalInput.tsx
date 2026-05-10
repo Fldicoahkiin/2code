@@ -153,6 +153,17 @@ export default function NativeTerminalInput() {
 				return;
 			}
 
+			// Cmd+V → paste from clipboard
+			if (e.metaKey && e.key === "v") {
+				e.preventDefault();
+				navigator.clipboard.readText().then((text) => {
+					if (text) {
+						invoke("write_to_native_terminal", { data: text });
+					}
+				});
+				return;
+			}
+
 			if (e.metaKey) return;
 
 			if (e.altKey && e.key.length === 1) {
