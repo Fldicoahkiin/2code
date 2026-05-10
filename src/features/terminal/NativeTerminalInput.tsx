@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTerminalSettingsStore } from "@/features/settings/stores/terminalSettingsStore";
 import { useTerminalTheme } from "@/features/terminal/hooks";
 import type { ITheme } from "@xterm/xterm";
@@ -66,11 +66,12 @@ function sendThemeToNative(theme: ITheme) {
 
 /**
  * PoC: Keyboard listener + layout sync for native wgpu terminal.
- * Renders a transparent div that captures input and reports its
+ * Renders a focusable div that captures input and reports its
  * position/size to the Rust backend for NSView positioning.
  */
 export default function NativeTerminalInput() {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [focused, setFocused] = useState(true);
 	const terminalTheme = useTerminalTheme();
 	const fontFamily = useTerminalSettingsStore((s) => s.fontFamily);
 	const fontSize = useTerminalSettingsStore((s) => s.fontSize);
@@ -80,11 +81,9 @@ export default function NativeTerminalInput() {
 		const el = containerRef.current;
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
-		// macOS NSView coordinates: origin at bottom-left of window.
-		// WebView rect is top-left origin. Convert:
 		const windowHeight = window.innerHeight;
 		const x = rect.left;
-		const y = windowHeight - rect.bottom; // flip Y for NSView
+		const y = windowHeight - rect.bottom;
 		invoke("resize_native_terminal", {
 			x,
 			y,
@@ -102,14 +101,15 @@ export default function NativeTerminalInput() {
 		observer.observe(el);
 		window.addEventListener("resize", syncLayout);
 
-		// Show native view when mounted
 		invoke("set_native_terminal_visible", { visible: true }).catch(() => {});
 		requestAnimationFrame(syncLayout);
+
+		// Auto-focus on mount
+		el.focus();
 
 		return () => {
 			observer.disconnect();
 			window.removeEventListener("resize", syncLayout);
-			// Hide native view when unmounted or tab switches away
 			invoke("set_native_terminal_visible", { visible: false }).catch(
 				() => {},
 			);
@@ -129,8 +129,10 @@ export default function NativeTerminalInput() {
 		}).catch(() => {});
 	}, [fontFamily, fontSize]);
 
-	// Keyboard input forwarding
+	// Keyboard input forwarding (only when focused)
 	useEffect(() => {
+		if (!focused) return;
+
 		const handler = (e: KeyboardEvent) => {
 			if (
 				e.key === "Meta" ||
@@ -140,7 +142,6 @@ export default function NativeTerminalInput() {
 			)
 				return;
 
-			// Ctrl+letter → send as control character (e.g. Ctrl+C = 0x03)
 			if (e.ctrlKey && !e.metaKey) {
 				if (e.key.length === 1 && /[a-z]/i.test(e.key)) {
 					e.preventDefault();
@@ -152,10 +153,8 @@ export default function NativeTerminalInput() {
 				return;
 			}
 
-			// Cmd+key — let the system handle (copy, paste, etc.)
 			if (e.metaKey) return;
 
-			// Alt+key → send ESC + key (terminal meta mode)
 			if (e.altKey && e.key.length === 1) {
 				e.preventDefault();
 				invoke("write_to_native_terminal", {
@@ -174,15 +173,13 @@ export default function NativeTerminalInput() {
 
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, []);
+	}, [focused]);
 
-	// Mouse wheel forwarding (scroll in less, man, vim, etc.)
+	// Mouse wheel forwarding (only when focused)
 	useEffect(() => {
+		if (!focused) return;
+
 		const handler = (e: WheelEvent) => {
-			// Convert wheel delta to terminal scroll sequences.
-			// Most terminal apps use arrow keys for scroll: Up/Down.
-			// Mouse reporting uses \x1b[M encoding, but simple arrow
-			// keys work universally for basic scroll in less/man/vim.
 			const lines = Math.round(e.deltaY / 30) || (e.deltaY > 0 ? 1 : -1);
 			const seq = lines > 0 ? "\x1b[B" : "\x1b[A";
 			const count = Math.abs(lines);
@@ -192,17 +189,23 @@ export default function NativeTerminalInput() {
 
 		window.addEventListener("wheel", handler, { passive: true });
 		return () => window.removeEventListener("wheel", handler);
-	}, []);
+	}, [focused]);
 
-	// This div marks the area where the native terminal should appear.
-	// It's transparent — the actual rendering is done by wgpu underneath.
 	return (
 		<div
 			ref={containerRef}
+			tabIndex={0}
+			onFocus={() => setFocused(true)}
+			onBlur={() => setFocused(false)}
+			onMouseDown={(e) => {
+				// Click to focus the terminal area
+				e.currentTarget.focus();
+			}}
 			style={{
 				position: "absolute",
 				inset: 0,
-				pointerEvents: "none",
+				outline: "none",
+				cursor: "text",
 			}}
 		/>
 	);
