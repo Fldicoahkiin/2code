@@ -12,6 +12,17 @@ pub fn write_to_native_terminal(
 	Ok(())
 }
 
+/// Paste text into the native terminal with bracketed paste support.
+#[tauri::command]
+pub fn paste_to_native_terminal(
+	surface: State<'_, Arc<Mutex<native_terminal::TerminalSurface>>>,
+	text: String,
+) -> Result<(), String> {
+	let surface = surface.lock().map_err(|e| e.to_string())?;
+	surface.paste_to_pty(&text);
+	Ok(())
+}
+
 /// Update font family and size for native terminal.
 #[tauri::command]
 pub fn set_native_terminal_font(

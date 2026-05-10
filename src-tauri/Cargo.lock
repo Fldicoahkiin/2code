@@ -3227,6 +3227,7 @@ name = "native-terminal"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "bytemuck",
  "glyphon",
  "log",
  "objc2",

@@ -218,6 +218,20 @@ impl TerminalSurface {
         }
     }
 
+    /// Paste text into the PTY, wrapping with bracketed paste sequences
+    /// if the running program has enabled bracketed paste mode.
+    pub fn paste_to_pty(&self, text: &str) {
+        if let Some(ref backend) = self.backend {
+            if backend.bracketed_paste_enabled() {
+                backend.write(b"\x1b[200~");
+                backend.write(text.as_bytes());
+                backend.write(b"\x1b[201~");
+            } else {
+                backend.write(text.as_bytes());
+            }
+        }
+    }
+
     /// Read terminal grid, update text buffer, render, and return content hash.
     /// The hash can be used for idle detection without a separate grid read.
     pub fn render(&mut self) -> u64 {

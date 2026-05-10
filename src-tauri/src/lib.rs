@@ -215,6 +215,7 @@ pub fn run() {
 			handler::debug::start_debug_log,
 			handler::debug::stop_debug_log,
 			handler::native_terminal::write_to_native_terminal,
+			handler::native_terminal::paste_to_native_terminal,
 			handler::native_terminal::resize_native_terminal,
 			handler::native_terminal::set_native_terminal_visible,
 			handler::native_terminal::set_native_terminal_theme,

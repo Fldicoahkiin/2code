@@ -115,6 +115,13 @@ impl TerminalBackend {
         let _ = self.notifier.0.send(Msg::Input(data.to_vec().into()));
     }
 
+    /// Check if bracketed paste mode is enabled by the running program.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        use alacritty_terminal::term::TermMode;
+        let term = self.term.lock();
+        term.mode().contains(TermMode::BRACKETED_PASTE)
+    }
+
     /// Lock the terminal and extract visible grid as colored spans with cursor.
     pub fn grid_content(&self, theme: &crate::theme::TerminalTheme) -> GridContent {
         let term = self.term.lock();
