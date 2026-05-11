@@ -195,7 +195,14 @@ impl TerminalBackend {
                 let is_spacer =
                     flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER);
 
-                let c = if cell.c == '\0' { ' ' } else { cell.c };
+                // SGR 8 hidden/conceal collapses to a space, same as the
+                // null-char placeholder. Either way, cell width and background
+                // are preserved but no glyph is drawn.
+                let c = if flags.contains(Flags::HIDDEN) || cell.c == '\0' {
+                    ' '
+                } else {
+                    cell.c
+                };
                 let mut fg = ansi_to_rgb(cell.fg, colors, theme);
                 let mut bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
 
