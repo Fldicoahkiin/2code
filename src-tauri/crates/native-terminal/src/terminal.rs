@@ -178,10 +178,23 @@ impl TerminalBackend {
             let col = cell.point.column.0;
             if row < lines && col < cols {
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
-                let fg = ansi_to_rgb(cell.fg, colors, theme);
-                let bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
-                let bg = if bg_rgb == bg_default { None } else { Some(bg_rgb) };
+                let mut fg = ansi_to_rgb(cell.fg, colors, theme);
+                let mut bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
                 let flags = cell.flags;
+
+                // SGR 7: inverse video — swap fg/bg. Must resolve both colors
+                // to concrete values first so default colors participate in swap.
+                if flags.contains(Flags::INVERSE) {
+                    std::mem::swap(&mut fg, &mut bg_rgb);
+                    // After swap, bg holds the original fg (must render),
+                    // and fg holds the original bg. Force bg to be Some.
+                }
+
+                let bg = if flags.contains(Flags::INVERSE) || bg_rgb != bg_default {
+                    Some(bg_rgb)
+                } else {
+                    None
+                };
                 let attrs = CellAttrs {
                     fg,
                     bg,
