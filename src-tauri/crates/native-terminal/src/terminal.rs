@@ -241,13 +241,25 @@ impl TerminalBackend {
         }
 
         let mut spans = Vec::new();
-        for row in &grid {
+        for (row_idx, row) in grid.iter().enumerate() {
+            // Find the last cell with visible content. Trailing cells that
+            // are plain space + default attrs contribute nothing to rendering,
+            // so we skip them to avoid pointless text shaping. The cursor
+            // row must extend to at least cursor_col so the cursor renders.
+            let last_meaningful = row.iter().rposition(|c| {
+                !c.spacer && (c.c != ' ' || c.attrs != default_attrs)
+            });
+            let mut effective_len = last_meaningful.map_or(0, |i| i + 1);
+            if row_idx == cursor_row {
+                effective_len = effective_len.max(cursor_col + 1);
+            }
+
             let mut current_text = String::new();
             let mut current_cols = 0usize;
             let mut current = default_attrs;
             let mut first = true;
 
-            for cell in row {
+            for cell in &row[..effective_len] {
                 // Spacer cells (right-half of wide CJK char) take one column
                 // but contribute no text. They extend the previous span's width.
                 if cell.spacer {
