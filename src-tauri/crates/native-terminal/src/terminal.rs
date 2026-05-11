@@ -22,6 +22,10 @@ pub struct ColoredSpan {
     pub italic: bool,
     pub underline: bool,
     pub strikeout: bool,
+    /// Number of grid columns this span occupies. May exceed text.chars().count()
+    /// when the span contains wide CJK chars (spacer cells contribute to width
+    /// but not to text).
+    pub cols: usize,
 }
 
 /// Terminal grid content with cursor position.
@@ -157,6 +161,9 @@ impl TerminalBackend {
         struct CellData {
             c: char,
             attrs: CellAttrs,
+            /// True for the right-half cell of a wide CJK char. Should not
+            /// contribute to span text but still keeps its grid column.
+            spacer: bool,
         }
 
         let default_attrs = CellAttrs {
@@ -171,7 +178,7 @@ impl TerminalBackend {
         let mut grid: Vec<Vec<CellData>> = (0..lines)
             .map(|_| {
                 (0..cols)
-                    .map(|_| CellData { c: ' ', attrs: default_attrs })
+                    .map(|_| CellData { c: ' ', attrs: default_attrs, spacer: false })
                     .collect()
             })
             .collect();
@@ -180,10 +187,17 @@ impl TerminalBackend {
             let row = cell.point.line.0 as usize;
             let col = cell.point.column.0;
             if row < lines && col < cols {
+                let flags = cell.flags;
+
+                // The right-half cell of a wide CJK char — wide char already
+                // covers this column visually. Mark as spacer so it does not
+                // contribute text but still occupies the grid column.
+                let is_spacer =
+                    flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER);
+
                 let c = if cell.c == '\0' { ' ' } else { cell.c };
                 let mut fg = ansi_to_rgb(cell.fg, colors, theme);
                 let mut bg_rgb = ansi_to_rgb(cell.bg, colors, theme);
-                let flags = cell.flags;
 
                 // SGR 7: inverse video — swap fg/bg. Must resolve both colors
                 // to concrete values first so default colors participate in swap.
@@ -215,17 +229,25 @@ impl TerminalBackend {
                     underline: flags.intersects(Flags::ALL_UNDERLINES),
                     strikeout: flags.contains(Flags::STRIKEOUT),
                 };
-                grid[row][col] = CellData { c, attrs };
+                grid[row][col] = CellData { c, attrs, spacer: is_spacer };
             }
         }
 
         let mut spans = Vec::new();
         for row in &grid {
             let mut current_text = String::new();
+            let mut current_cols = 0usize;
             let mut current = default_attrs;
             let mut first = true;
 
             for cell in row {
+                // Spacer cells (right-half of wide CJK char) take one column
+                // but contribute no text. They extend the previous span's width.
+                if cell.spacer {
+                    current_cols += 1;
+                    continue;
+                }
+
                 if first {
                     current = cell.attrs;
                     first = false;
@@ -233,6 +255,7 @@ impl TerminalBackend {
 
                 if cell.attrs == current {
                     current_text.push(cell.c);
+                    current_cols += 1;
                 } else {
                     if !current_text.is_empty() {
                         spans.push(ColoredSpan {
@@ -245,10 +268,12 @@ impl TerminalBackend {
                             italic: current.italic,
                             underline: current.underline,
                             strikeout: current.strikeout,
+                            cols: current_cols,
                         });
                     }
                     current_text.clear();
                     current_text.push(cell.c);
+                    current_cols = 1;
                     current = cell.attrs;
                 }
             }
@@ -263,6 +288,7 @@ impl TerminalBackend {
                     italic: current.italic,
                     underline: current.underline,
                     strikeout: current.strikeout,
+                    cols: current_cols,
                 });
             }
             spans.push(ColoredSpan {
@@ -275,6 +301,7 @@ impl TerminalBackend {
                 italic: false,
                 underline: false,
                 strikeout: false,
+                cols: 0,
             });
         }
         GridContent {

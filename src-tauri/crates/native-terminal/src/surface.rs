@@ -304,21 +304,21 @@ impl TerminalSurface {
                 }
 
                 let span_start_col = col;
-                let char_count = span.text.chars().count();
-                let span_end_col = col + char_count;
+                let col_count = span.cols;
+                let span_end_col = col + col_count;
                 let is_cursor_line = line == cursor_row && cursor_visible;
                 let cursor_in_span = is_cursor_line && cursor_col >= span_start_col && cursor_col < span_end_col;
 
                 // Collect background color rectangle
                 if let Some((br, bg_color, bb)) = span.bg {
-                    bg_rects.push((line, span_start_col, char_count, br, bg_color, bb));
+                    bg_rects.push((line, span_start_col, col_count, br, bg_color, bb));
                 }
                 // Collect underline rectangle (uses span's foreground color)
                 if span.underline {
-                    underline_rects.push((line, span_start_col, char_count, span.r, span.g, span.b));
+                    underline_rects.push((line, span_start_col, col_count, span.r, span.g, span.b));
                 }
                 if span.strikeout {
-                    strikeout_rects.push((line, span_start_col, char_count, span.r, span.g, span.b));
+                    strikeout_rects.push((line, span_start_col, col_count, span.r, span.g, span.b));
                 }
 
                 let push = |sr: &mut Vec<SpanRange>, start, end, r, g, b, bold, italic| {
