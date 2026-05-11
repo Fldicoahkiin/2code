@@ -237,6 +237,8 @@ impl TerminalSurface {
     pub fn render(&mut self) -> u64 {
         // Background color rectangles: (row, col_start, col_count, r, g, b)
         let mut bg_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
+        // Underline rectangles: (row, col_start, col_count, r, g, b)
+        let mut underline_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
 
         let content_hash = if let Some(ref backend) = self.backend {
             let content = backend.grid_content(&self.theme);
@@ -307,6 +309,10 @@ impl TerminalSurface {
                 // Collect background color rectangle
                 if let Some((br, bg_color, bb)) = span.bg {
                     bg_rects.push((line, span_start_col, char_count, br, bg_color, bb));
+                }
+                // Collect underline rectangle (uses span's foreground color)
+                if span.underline {
+                    underline_rects.push((line, span_start_col, char_count, span.r, span.g, span.b));
                 }
 
                 let push = |sr: &mut Vec<SpanRange>, start, end, r, g, b, bold, italic| {
@@ -520,6 +526,30 @@ impl TerminalSurface {
             self.text_renderer
                 .render(&self.text_atlas, &self.viewport, &mut pass)
                 .expect("failed to render text");
+        }
+
+        // Pass 4: Draw underlines on top of text (1px thick, near baseline)
+        if !underline_rects.is_empty() {
+            let underline_thickness = 1u32;
+            // Position: 2px below the baseline (cell_height - 2 from cell top)
+            let y_offset = self.cell_height.saturating_sub(2);
+            let mut rects: Vec<CursorRect> = underline_rects
+                .iter()
+                .map(|&(row, col_start, col_count, r, g, b)| CursorRect {
+                    x: PADDING as u32 + col_start as u32 * self.cell_width,
+                    y: PADDING as u32 + row as u32 * self.cell_height + y_offset,
+                    width: col_count as u32 * self.cell_width,
+                    height: underline_thickness,
+                    color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
+                })
+                .collect();
+            self.rect_renderer.render_batch(
+                &mut encoder,
+                &view,
+                &self.queue,
+                &self.device,
+                &mut rects,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
