@@ -41,8 +41,7 @@ impl EventListener for JsonEventListener {
 pub struct TerminalBackend {
     term: Arc<FairMutex<Term<JsonEventListener>>>,
     notifier: Notifier,
-    #[allow(dead_code)]
-    io_thread: JoinHandle<(EventLoop<tty::Pty, JsonEventListener>, alacritty_terminal::event_loop::State)>,
+    io_thread: Option<JoinHandle<(EventLoop<tty::Pty, JsonEventListener>, alacritty_terminal::event_loop::State)>>,
     cols: u16,
     rows: u16,
 }
@@ -87,7 +86,7 @@ impl TerminalBackend {
         Self {
             term,
             notifier,
-            io_thread,
+            io_thread: Some(io_thread),
             cols,
             rows,
         }
@@ -116,6 +115,11 @@ impl TerminalBackend {
     /// Send raw input bytes to the PTY.
     pub fn write(&self, data: &[u8]) {
         let _ = self.notifier.0.send(Msg::Input(data.to_vec().into()));
+    }
+
+    /// Signal the io_thread to shut down cleanly.
+    fn shutdown(&self) {
+        let _ = self.notifier.0.send(Msg::Shutdown);
     }
 
     /// Check if bracketed paste mode is enabled by the running program.
@@ -257,6 +261,17 @@ impl TerminalBackend {
 
     pub fn rows(&self) -> u16 {
         self.rows
+    }
+}
+
+impl Drop for TerminalBackend {
+    fn drop(&mut self) {
+        self.shutdown();
+        if let Some(handle) = self.io_thread.take() {
+            // Best-effort wait so PTY fd closes before process exits.
+            let _ = handle.join();
+        }
+        log::info!("native-terminal: PTY shut down");
     }
 }
 
