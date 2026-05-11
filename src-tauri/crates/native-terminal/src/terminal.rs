@@ -21,6 +21,7 @@ pub struct ColoredSpan {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strikeout: bool,
 }
 
 /// Terminal grid content with cursor position.
@@ -150,6 +151,7 @@ impl TerminalBackend {
             bold: bool,
             italic: bool,
             underline: bool,
+            strikeout: bool,
         }
 
         struct CellData {
@@ -163,6 +165,7 @@ impl TerminalBackend {
             bold: false,
             italic: false,
             underline: false,
+            strikeout: false,
         };
 
         let mut grid: Vec<Vec<CellData>> = (0..lines)
@@ -195,12 +198,22 @@ impl TerminalBackend {
                 } else {
                     None
                 };
+
+                // SGR 2: dim — multiply fg by 2/3 (~0.667) for visible darkening
+                // that still preserves enough contrast against most backgrounds.
+                let fg = if flags.contains(Flags::DIM) {
+                    dim_color(fg)
+                } else {
+                    fg
+                };
+
                 let attrs = CellAttrs {
                     fg,
                     bg,
                     bold: flags.contains(Flags::BOLD),
                     italic: flags.contains(Flags::ITALIC),
                     underline: flags.intersects(Flags::ALL_UNDERLINES),
+                    strikeout: flags.contains(Flags::STRIKEOUT),
                 };
                 grid[row][col] = CellData { c, attrs };
             }
@@ -231,6 +244,7 @@ impl TerminalBackend {
                             bold: current.bold,
                             italic: current.italic,
                             underline: current.underline,
+                            strikeout: current.strikeout,
                         });
                     }
                     current_text.clear();
@@ -248,6 +262,7 @@ impl TerminalBackend {
                     bold: current.bold,
                     italic: current.italic,
                     underline: current.underline,
+                    strikeout: current.strikeout,
                 });
             }
             spans.push(ColoredSpan {
@@ -259,6 +274,7 @@ impl TerminalBackend {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikeout: false,
             });
         }
         GridContent {
@@ -286,6 +302,11 @@ impl Drop for TerminalBackend {
         }
         log::info!("native-terminal: PTY shut down");
     }
+}
+
+/// Darken an RGB color by ~33% — used for SGR 2 (DIM) attribute.
+fn dim_color((r, g, b): (u8, u8, u8)) -> (u8, u8, u8) {
+    ((r as u16 * 2 / 3) as u8, (g as u16 * 2 / 3) as u8, (b as u16 * 2 / 3) as u8)
 }
 
 fn ansi_to_rgb(

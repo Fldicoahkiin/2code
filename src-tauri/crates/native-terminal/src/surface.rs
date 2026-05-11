@@ -239,6 +239,8 @@ impl TerminalSurface {
         let mut bg_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
         // Underline rectangles: (row, col_start, col_count, r, g, b)
         let mut underline_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
+        // Strikeout rectangles: same format, drawn at cell mid-height
+        let mut strikeout_rects: Vec<(usize, usize, usize, u8, u8, u8)> = Vec::new();
 
         let content_hash = if let Some(ref backend) = self.backend {
             let content = backend.grid_content(&self.theme);
@@ -255,6 +257,7 @@ impl TerminalSurface {
                 span.bold.hash(&mut hasher);
                 span.italic.hash(&mut hasher);
                 span.underline.hash(&mut hasher);
+                span.strikeout.hash(&mut hasher);
             }
             content.cursor_row.hash(&mut hasher);
             content.cursor_col.hash(&mut hasher);
@@ -313,6 +316,9 @@ impl TerminalSurface {
                 // Collect underline rectangle (uses span's foreground color)
                 if span.underline {
                     underline_rects.push((line, span_start_col, char_count, span.r, span.g, span.b));
+                }
+                if span.strikeout {
+                    strikeout_rects.push((line, span_start_col, char_count, span.r, span.g, span.b));
                 }
 
                 let push = |sr: &mut Vec<SpanRange>, start, end, r, g, b, bold, italic| {
@@ -528,21 +534,28 @@ impl TerminalSurface {
                 .expect("failed to render text");
         }
 
-        // Pass 4: Draw underlines on top of text (1px thick, near baseline)
-        if !underline_rects.is_empty() {
-            let underline_thickness = 1u32;
-            // Position: 2px below the baseline (cell_height - 2 from cell top)
-            let y_offset = self.cell_height.saturating_sub(2);
-            let mut rects: Vec<CursorRect> = underline_rects
-                .iter()
-                .map(|&(row, col_start, col_count, r, g, b)| CursorRect {
-                    x: PADDING as u32 + col_start as u32 * self.cell_width,
-                    y: PADDING as u32 + row as u32 * self.cell_height + y_offset,
-                    width: col_count as u32 * self.cell_width,
-                    height: underline_thickness,
-                    color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
-                })
-                .collect();
+        // Pass 4: Draw underlines and strikeouts on top of text (1px thick)
+        if !underline_rects.is_empty() || !strikeout_rects.is_empty() {
+            let line_thickness = 1u32;
+            let underline_y_offset = self.cell_height.saturating_sub(2);
+            let strikeout_y_offset = self.cell_height / 2;
+
+            let make_rects = |source: &[(usize, usize, usize, u8, u8, u8)], y_offset: u32| -> Vec<CursorRect> {
+                source
+                    .iter()
+                    .map(|&(row, col_start, col_count, r, g, b)| CursorRect {
+                        x: PADDING as u32 + col_start as u32 * self.cell_width,
+                        y: PADDING as u32 + row as u32 * self.cell_height + y_offset,
+                        width: col_count as u32 * self.cell_width,
+                        height: line_thickness,
+                        color: [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
+                    })
+                    .collect()
+            };
+
+            let mut rects = make_rects(&underline_rects, underline_y_offset);
+            rects.extend(make_rects(&strikeout_rects, strikeout_y_offset));
+
             self.rect_renderer.render_batch(
                 &mut encoder,
                 &view,
