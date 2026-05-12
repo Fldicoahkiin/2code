@@ -27,7 +27,6 @@ import { useCloseTerminalTab } from "./hooks";
 import { useTerminalStore } from "./store";
 import { TabStrip, type TabStripGroup } from "./TabStrip";
 import TerminalTemplateMenu from "./TerminalTemplateMenu";
-import { Terminal } from "./Terminal";
 
 const FileViewerPane = lazy(() => import("@/features/projects/FileViewerPane"));
 
@@ -245,23 +244,9 @@ export default function TerminalTabs({
 				position="relative"
 				display={fileTabActive ? "none" : "block"}
 			>
-				{tabs.map((tab) => (
-					<Box
-						key={tab.id}
-						position="absolute"
-						inset="0"
-						visibility={tab.id === activeTabId ? "visible" : "hidden"}
-						pointerEvents={tab.id === activeTabId ? "auto" : "none"}
-						aria-hidden={tab.id !== activeTabId}
-					>
-						<Terminal
-							profileId={profileId}
-							sessionId={tab.id}
-							isActive={tab.id === activeTabId && !fileTabActive}
-						/>
-					</Box>
-				))}
-				{/* PoC: Native GPU terminal layout sync overlay */}
+				{/* PoC branch: xterm.js is replaced by the wgpu/alacritty
+				   native renderer below. The NSView is positioned behind the
+				   transparent NativeTerminalInput div via setFrame. */}
 				<NativeTerminalInput />
 			</Box>
 		</Flex>
