@@ -76,47 +76,72 @@ export default function NativeTerminalInput() {
 	const fontFamily = useTerminalSettingsStore((s) => s.fontFamily);
 	const fontSize = useTerminalSettingsStore((s) => s.fontSize);
 
-	// Report container bounds to Rust so NSView can be positioned correctly.
-	// AppKit's contentView uses Y-up coordinates, so we flip from the WebView's
-	// Y-down origin. `scale` is forwarded so the wgpu surface is configured at
-	// physical pixel resolution (crisp on Retina).
-	const syncLayout = useCallback(() => {
+	// Send the current container bounds to the native renderer.
+	// AppKit's contentView uses Y-up coords, so we flip from WebView Y-down.
+	// `scale` (devicePixelRatio) lets the wgpu surface render at physical
+	// pixel resolution — crisp on Retina.
+	const sendLayoutNow = useCallback(() => {
 		const el = containerRef.current;
-		if (!el) return;
+		if (!el) return Promise.resolve();
 		const rect = el.getBoundingClientRect();
-		const windowHeight = window.innerHeight;
-		invoke("resize_native_terminal", {
+		return invoke("resize_native_terminal", {
 			x: rect.left,
-			y: windowHeight - rect.bottom,
+			y: window.innerHeight - rect.bottom,
 			width: rect.width,
 			height: rect.height,
 			scale: window.devicePixelRatio || 1,
 		}).catch(() => {});
 	}, []);
 
-	// Observe container resize and visibility
+	// Coalesce burst-y resize signals (window drag, sidebar animation, etc.)
+	// into one IPC per animation frame.
+	const rafHandleRef = useRef<number | null>(null);
+	const scheduleSync = useCallback(() => {
+		if (rafHandleRef.current !== null) return;
+		rafHandleRef.current = requestAnimationFrame(() => {
+			rafHandleRef.current = null;
+			sendLayoutNow();
+		});
+	}, [sendLayoutNow]);
+
+	// Observe container resize, window resize, and DPR changes
 	useEffect(() => {
 		const el = containerRef.current;
 		if (!el) return;
 
-		const observer = new ResizeObserver(() => syncLayout());
+		const observer = new ResizeObserver(scheduleSync);
 		observer.observe(el);
-		window.addEventListener("resize", syncLayout);
+		window.addEventListener("resize", scheduleSync);
 
-		invoke("set_native_terminal_visible", { visible: true }).catch(() => {});
-		requestAnimationFrame(syncLayout);
+		// Re-sync when dragging between displays with different scale factors.
+		const dprMedia = window.matchMedia(
+			`(resolution: ${window.devicePixelRatio}dppx)`,
+		);
+		dprMedia.addEventListener("change", scheduleSync);
 
-		// Auto-focus on mount
+		// Push first layout *before* unhiding so the user never sees the
+		// stale 1×1 surface that was created at app startup.
+		sendLayoutNow().then(() => {
+			invoke("set_native_terminal_visible", { visible: true }).catch(
+				() => {},
+			);
+		});
+
 		el.focus();
 
 		return () => {
+			if (rafHandleRef.current !== null) {
+				cancelAnimationFrame(rafHandleRef.current);
+				rafHandleRef.current = null;
+			}
 			observer.disconnect();
-			window.removeEventListener("resize", syncLayout);
+			window.removeEventListener("resize", scheduleSync);
+			dprMedia.removeEventListener("change", scheduleSync);
 			invoke("set_native_terminal_visible", { visible: false }).catch(
 				() => {},
 			);
 		};
-	}, [syncLayout]);
+	}, [scheduleSync, sendLayoutNow]);
 
 	// Sync terminal theme to native renderer
 	useEffect(() => {
