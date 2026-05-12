@@ -59,9 +59,20 @@ impl TerminalBackend {
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
 
+        // Tell programs running inside the PTY what the terminal supports.
+        // TERM=xterm-256color is the broadest-compatible value; COLORTERM
+        // signals 24-bit color (truecolor) support to apps like vim/nvim.
+        let mut env = std::collections::HashMap::new();
+        env.insert("TERM".into(), "xterm-256color".into());
+        env.insert("COLORTERM".into(), "truecolor".into());
+        if std::env::var_os("LANG").is_none() {
+            env.insert("LANG".into(), "en_US.UTF-8".into());
+        }
+
         let pty_config = tty::Options {
             shell: Some(tty::Shell::new(shell, vec![])),
             drain_on_exit: false,
+            env,
             ..Default::default()
         };
 
