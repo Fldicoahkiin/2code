@@ -80,6 +80,85 @@ pub fn run() {
 			let helper = helper::start(app.handle());
 			app.manage(helper);
 
+			// PoC: Create native GPU terminal view
+			#[cfg(target_os = "macos")]
+			{
+				use tauri::Manager;
+				let window = app.get_webview_window("main").unwrap();
+
+				// Get NSWindow pointer from Tauri window
+				use raw_window_handle::HasWindowHandle;
+				let window_handle = window.window_handle().unwrap();
+				let raw_handle = window_handle.as_raw();
+
+				if let raw_window_handle::RawWindowHandle::AppKit(appkit_handle) = raw_handle {
+					let ns_window_ptr = appkit_handle.ns_view.as_ptr() as *mut std::ffi::c_void;
+
+					// We need the NSWindow, not the NSView. Get it from the view.
+					let ns_window_ptr = unsafe {
+						use objc2_app_kit::NSView;
+						let ns_view = ns_window_ptr as *mut NSView;
+						let ns_view_ref = &*ns_view;
+						let ns_window = ns_view_ref.window().expect("NSView has no window");
+						let ptr = objc2::rc::Retained::as_ptr(&ns_window) as *mut std::ffi::c_void;
+						ptr
+					};
+
+					let native_view = unsafe {
+						native_terminal::NativeTerminalView::new(ns_window_ptr)
+					};
+					// Start hidden — frontend will show when terminal tab mounts
+					native_view.set_hidden(true);
+					let (w, h) = native_view.size();
+
+					let terminal_surface = unsafe {
+						native_terminal::TerminalSurface::new(
+							native_view.raw_window_handle(),
+							native_view.raw_display_handle(),
+							w, h,
+						)
+					};
+
+					// Render first frame immediately
+					let mut terminal_surface = terminal_surface;
+					terminal_surface.render_test_frame();
+
+					// Store in managed state
+					let sendable_view = std::sync::Arc::new(
+						native_terminal::SendableNativeView::new(&native_view)
+					);
+					app.manage(sendable_view);
+
+					let surface = std::sync::Arc::new(std::sync::Mutex::new(terminal_surface));
+					let surface_for_thread = surface.clone();
+					app.manage(surface);
+
+					// Render loop: 30fps with idle detection.
+					// Renders at full rate when terminal has output,
+					// drops to 4fps when idle (cursor blink only).
+					std::thread::spawn(move || {
+						let mut last_text_hash: u64 = 0;
+						let mut idle_frames: u32 = 0;
+						loop {
+							let sleep_ms = if idle_frames > 10 { 250 } else { 33 };
+							if let Ok(mut s) = surface_for_thread.lock() {
+								let hash = s.content_hash();
+								if hash != last_text_hash {
+									last_text_hash = hash;
+									idle_frames = 0;
+								} else {
+									idle_frames = idle_frames.saturating_add(1);
+								}
+								s.render_test_frame();
+							}
+							std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+						}
+					});
+
+					tracing::info!("native-terminal: PoC GPU view created ({w}x{h})");
+				}
+			}
+
 			Ok(())
 		})
 		.invoke_handler(tauri::generate_handler![
@@ -136,6 +215,9 @@ pub fn run() {
 			handler::updater::install_update,
 			handler::debug::start_debug_log,
 			handler::debug::stop_debug_log,
+			handler::native_terminal::write_to_native_terminal,
+			handler::native_terminal::resize_native_terminal,
+			handler::native_terminal::set_native_terminal_visible,
 		])
 		.build(tauri::generate_context!())
 		.expect("error while building tauri application");

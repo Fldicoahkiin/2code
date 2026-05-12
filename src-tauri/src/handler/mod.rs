@@ -9,6 +9,7 @@ pub mod pty;
 pub mod sound;
 pub mod topbar;
 pub mod updater;
+pub mod native_terminal;
 pub mod watcher;
 
 pub async fn run_blocking<T, F>(job: F) -> Result<T, AppError>

@@ -14,6 +14,7 @@ import opencodeIconUrl from "@lobehub/icons-static-svg/icons/opencode.svg";
 import qoderIconUrl from "@lobehub/icons-static-svg/icons/qoder-color.svg";
 import { useReducedMotion } from "motion/react";
 import { lazy, useMemo } from "react";
+import NativeTerminalInput from "./NativeTerminalInput";
 import { FiTerminal } from "react-icons/fi";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -260,6 +261,8 @@ export default function TerminalTabs({
 						/>
 					</Box>
 				))}
+				{/* PoC: Native GPU terminal layout sync overlay */}
+				<NativeTerminalInput />
 			</Box>
 		</Flex>
 	);

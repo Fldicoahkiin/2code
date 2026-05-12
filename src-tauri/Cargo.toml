@@ -25,6 +25,7 @@ model = { path = "crates/model" }
 repo = { path = "crates/repo" }
 infra = { path = "crates/infra" }
 service = { path = "crates/service" }
+native-terminal = { path = "crates/native-terminal" }
 
 # Tauri framework
 tauri = { version = "2", features = [  ] }
@@ -45,8 +46,12 @@ tokio = { version = "1", features = [ "net" ] }
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 tauri-plugin-process = "2"
 
+raw-window-handle = "0.6"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-text = "22"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow", "NSResponder"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 libsqlite3-sys = { version = "0.35", features = ["bundled"] }
