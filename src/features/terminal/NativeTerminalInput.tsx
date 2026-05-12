@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTerminalSettingsStore } from "@/features/settings/stores/terminalSettingsStore";
 import { useTerminalTheme } from "@/features/terminal/hooks";
 import type { ITheme } from "@xterm/xterm";
@@ -71,7 +71,6 @@ function sendThemeToNative(theme: ITheme) {
  */
 export default function NativeTerminalInput() {
 	const containerRef = useRef<HTMLDivElement>(null);
-	const [focused, setFocused] = useState(true);
 	const terminalTheme = useTerminalTheme();
 	const fontFamily = useTerminalSettingsStore((s) => s.fontFamily);
 	const fontSize = useTerminalSettingsStore((s) => s.fontSize);
@@ -156,9 +155,14 @@ export default function NativeTerminalInput() {
 		}).catch(() => {});
 	}, [fontFamily, fontSize]);
 
-	// Keyboard input forwarding (only when focused)
+	// Keyboard input forwarding via DOM element listener.
+	// Window-level listeners would fire on every NativeTerminalInput instance
+	// mounted by TerminalLayer (one per profile), multiplying keystrokes by
+	// the number of loaded profiles. Element-level listeners only fire when
+	// the div has focus, which DOM enforces — one event = one PTY write.
 	useEffect(() => {
-		if (!focused) return;
+		const el = containerRef.current;
+		if (!el) return;
 
 		const handler = (e: KeyboardEvent) => {
 			if (
@@ -180,7 +184,6 @@ export default function NativeTerminalInput() {
 				return;
 			}
 
-			// Cmd+V → paste from clipboard (with bracketed paste support)
 			if (e.metaKey && e.key === "v") {
 				e.preventDefault();
 				navigator.clipboard.readText().then((text) => {
@@ -209,13 +212,14 @@ export default function NativeTerminalInput() {
 			invoke("write_to_native_terminal", { data });
 		};
 
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, [focused]);
+		el.addEventListener("keydown", handler);
+		return () => el.removeEventListener("keydown", handler);
+	}, []);
 
-	// Mouse wheel forwarding (only when focused)
+	// Wheel listener also on the element — same rationale.
 	useEffect(() => {
-		if (!focused) return;
+		const el = containerRef.current;
+		if (!el) return;
 
 		const handler = (e: WheelEvent) => {
 			const lines = Math.round(e.deltaY / 30) || (e.deltaY > 0 ? 1 : -1);
@@ -225,18 +229,16 @@ export default function NativeTerminalInput() {
 			invoke("write_to_native_terminal", { data });
 		};
 
-		window.addEventListener("wheel", handler, { passive: true });
-		return () => window.removeEventListener("wheel", handler);
-	}, [focused]);
+		el.addEventListener("wheel", handler, { passive: true });
+		return () => el.removeEventListener("wheel", handler);
+	}, []);
 
 	return (
 		<div
 			ref={containerRef}
 			tabIndex={0}
-			onFocus={() => setFocused(true)}
-			onBlur={() => setFocused(false)}
 			onMouseDown={(e) => {
-				// Click to focus the terminal area
+				// Click to focus so element-level key listeners receive events
 				e.currentTarget.focus();
 			}}
 			style={{
