@@ -40,7 +40,7 @@ pub struct TerminalSurface {
     cell_height: u32,
     rect_renderer: RectRenderer,
     /// Cursor position in grid coordinates, updated each frame.
-    cursor_pos: Option<(usize, usize)>,
+    cursor_pos: Option<(usize, usize, crate::terminal::CursorShape)>,
 }
 
 impl TerminalSurface {
@@ -264,11 +264,14 @@ impl TerminalSurface {
             let hash = hasher.finish();
             let cursor_row = content.cursor_row;
             let cursor_col = content.cursor_col;
+            let cursor_shape = content.cursor_shape;
 
             self.frame_count += 1;
-            let cursor_visible = (self.frame_count / 30).is_multiple_of(2);
+            // Hidden shape never draws; other shapes blink at 30-frame period.
+            let cursor_visible = cursor_shape != crate::terminal::CursorShape::Hidden
+                && (self.frame_count / 30).is_multiple_of(2);
             self.cursor_pos = if cursor_visible {
-                Some((cursor_row, cursor_col))
+                Some((cursor_row, cursor_col, cursor_shape))
             } else {
                 None
             };
@@ -306,7 +309,11 @@ impl TerminalSurface {
                 let span_start_col = col;
                 let col_count = span.cols;
                 let span_end_col = col + col_count;
-                let is_cursor_line = line == cursor_row && cursor_visible;
+                // Only block-shape cursor inverts the underlying glyph color —
+                // beam/underline draw alongside the character, no inversion.
+                let is_block_cursor =
+                    cursor_visible && cursor_shape == crate::terminal::CursorShape::Block;
+                let is_cursor_line = line == cursor_row && is_block_cursor;
                 let cursor_in_span = is_cursor_line && cursor_col >= span_start_col && cursor_col < span_end_col;
 
                 // Collect background color rectangle
@@ -490,15 +497,33 @@ impl TerminalSurface {
                 })
                 .collect();
 
-            if let Some((row, col)) = self.cursor_pos {
+            if let Some((row, col, shape)) = self.cursor_pos {
+                use crate::terminal::CursorShape;
                 let (cr, cg, cb) = self.theme.cursor;
-                all_rects.push(CursorRect {
-                    x: PADDING as u32 + col as u32 * self.cell_width,
-                    y: PADDING as u32 + row as u32 * self.cell_height,
-                    width: self.cell_width,
-                    height: self.cell_height,
-                    color: [cr as f32 / 255.0, cg as f32 / 255.0, cb as f32 / 255.0, 1.0],
-                });
+                let cell_x = PADDING as u32 + col as u32 * self.cell_width;
+                let cell_y = PADDING as u32 + row as u32 * self.cell_height;
+                let (x, y, w, h) = match shape {
+                    CursorShape::Block => (cell_x, cell_y, self.cell_width, self.cell_height),
+                    CursorShape::Underline => {
+                        // 2px-tall bar at the bottom of the cell
+                        let h = 2u32;
+                        (cell_x, cell_y + self.cell_height.saturating_sub(h), self.cell_width, h)
+                    }
+                    CursorShape::Beam => {
+                        // 2px-wide vertical bar on the cell's left edge
+                        (cell_x, cell_y, 2u32, self.cell_height)
+                    }
+                    CursorShape::Hidden => (0, 0, 0, 0),
+                };
+                if w > 0 && h > 0 {
+                    all_rects.push(CursorRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                        color: [cr as f32 / 255.0, cg as f32 / 255.0, cb as f32 / 255.0, 1.0],
+                    });
+                }
             }
 
             self.rect_renderer.render_batch(

@@ -28,11 +28,21 @@ pub struct ColoredSpan {
     pub cols: usize,
 }
 
+/// Visual shape of the terminal cursor.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CursorShape {
+    Block,
+    Underline,
+    Beam,
+    Hidden,
+}
+
 /// Terminal grid content with cursor position.
 pub struct GridContent {
     pub spans: Vec<ColoredSpan>,
     pub cursor_row: usize,
     pub cursor_col: usize,
+    pub cursor_shape: CursorShape,
 }
 
 #[derive(Clone)]
@@ -154,6 +164,13 @@ impl TerminalBackend {
         let colors = content.colors;
         let cursor_row = content.cursor.point.line.0 as usize;
         let cursor_col = content.cursor.point.column.0;
+        let cursor_shape = match content.cursor.shape {
+            alacritty_terminal::vte::ansi::CursorShape::Block => CursorShape::Block,
+            alacritty_terminal::vte::ansi::CursorShape::Underline => CursorShape::Underline,
+            alacritty_terminal::vte::ansi::CursorShape::Beam => CursorShape::Beam,
+            alacritty_terminal::vte::ansi::CursorShape::HollowBlock => CursorShape::Block,
+            alacritty_terminal::vte::ansi::CursorShape::Hidden => CursorShape::Hidden,
+        };
         let (fg_r, fg_g, fg_b) = theme.foreground;
         let bg_default = theme.background;
 
@@ -338,6 +355,7 @@ impl TerminalBackend {
             spans,
             cursor_row,
             cursor_col,
+            cursor_shape,
         }
     }
 
