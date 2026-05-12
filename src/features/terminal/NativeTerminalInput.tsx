@@ -76,19 +76,21 @@ export default function NativeTerminalInput() {
 	const fontFamily = useTerminalSettingsStore((s) => s.fontFamily);
 	const fontSize = useTerminalSettingsStore((s) => s.fontSize);
 
-	// Report container bounds to Rust so NSView can be positioned correctly
+	// Report container bounds to Rust so NSView can be positioned correctly.
+	// AppKit's contentView uses Y-up coordinates, so we flip from the WebView's
+	// Y-down origin. `scale` is forwarded so the wgpu surface is configured at
+	// physical pixel resolution (crisp on Retina).
 	const syncLayout = useCallback(() => {
 		const el = containerRef.current;
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
 		const windowHeight = window.innerHeight;
-		const x = rect.left;
-		const y = windowHeight - rect.bottom;
 		invoke("resize_native_terminal", {
-			x,
-			y,
+			x: rect.left,
+			y: windowHeight - rect.bottom,
 			width: rect.width,
 			height: rect.height,
+			scale: window.devicePixelRatio || 1,
 		}).catch(() => {});
 	}, []);
 

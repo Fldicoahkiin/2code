@@ -44,14 +44,23 @@ pub fn set_native_terminal_theme(
 	cursor: String,
 	ansi_colors: [String; 16],
 ) -> Result<(), String> {
-	let theme =
-		native_terminal::TerminalTheme::from_hex(&background, &foreground, &cursor, &ansi_colors);
+	let theme = native_terminal::TerminalTheme::from_hex(
+		&background,
+		&foreground,
+		&cursor,
+		&ansi_colors,
+	);
 	let mut s = surface.lock().map_err(|e| e.to_string())?;
 	s.set_theme(theme);
 	Ok(())
 }
 
 /// Resize and reposition the native terminal view + wgpu surface.
+///
+/// `x`/`y`/`width`/`height` are in logical points (matching the NSView frame
+/// in AppKit-flipped coordinates). `scale` is `window.devicePixelRatio` from
+/// the WebView; the wgpu surface is configured at `width * scale` × `height *
+/// scale` physical pixels so text stays crisp on Retina displays.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn resize_native_terminal(
@@ -61,10 +70,11 @@ pub fn resize_native_terminal(
 	y: f64,
 	width: f64,
 	height: f64,
+	scale: f64,
 ) -> Result<(), String> {
 	view.set_frame(x, y, width, height);
 	let mut s = surface.lock().map_err(|e| e.to_string())?;
-	s.resize(width as u32, height as u32);
+	s.resize(width as u32, height as u32, scale as f32);
 	Ok(())
 }
 
