@@ -42,7 +42,15 @@ impl NativeTerminalView {
 		let ns_view = NSView::initWithFrame(NSView::alloc(mtm), terminal_frame);
 		ns_view.setWantsLayer(true);
 
-		content_view.addSubview(&ns_view);
+		// Place above all existing subviews (including the WKWebView Tauri
+		// inserts as the contentView's first subview). Without `Above`, our
+		// NSView ends up under the webview and never renders to screen.
+		use objc2_app_kit::NSWindowOrderingMode;
+		content_view.addSubview_positioned_relativeTo(
+			&ns_view,
+			NSWindowOrderingMode::Above,
+			None,
+		);
 
 		log::info!(
 			"native-terminal: created NSView ({:.0}x{:.0}) at ({:.0},{:.0})",
