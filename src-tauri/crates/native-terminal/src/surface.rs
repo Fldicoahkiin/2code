@@ -713,6 +713,7 @@ impl TerminalSurface {
 				&self.queue,
 				&self.device,
 				&mut all_rects,
+				(self.config.width, self.config.height),
 			);
 		}
 
@@ -785,6 +786,7 @@ impl TerminalSurface {
 				&self.queue,
 				&self.device,
 				&mut rects,
+				(self.config.width, self.config.height),
 			);
 		}
 

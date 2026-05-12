@@ -96,8 +96,26 @@ impl RectRenderer {
 		queue: &wgpu::Queue,
 		device: &wgpu::Device,
 		rects: &mut [CursorRect],
+		surface: (u32, u32),
 	) {
-		// Filter out zero-size rects
+		let (surface_width, surface_height) = surface;
+		if surface_width == 0 || surface_height == 0 {
+			return;
+		}
+		// Clip rects to surface bounds; drop any that fall fully outside.
+		// wgpu rejects set_scissor_rect when x+w or y+h exceeds the attachment.
+		for r in rects.iter_mut() {
+			if r.x >= surface_width || r.y >= surface_height {
+				r.width = 0;
+				r.height = 0;
+				continue;
+			}
+			let max_w = surface_width - r.x;
+			let max_h = surface_height - r.y;
+			r.width = r.width.min(max_w);
+			r.height = r.height.min(max_h);
+		}
+
 		let valid_count =
 			rects.iter().filter(|r| r.width > 0 && r.height > 0).count();
 		if valid_count == 0 {
